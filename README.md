@@ -64,6 +64,13 @@ Copy or symlink `SKILL.md` to `~/.claude/skills/tmux-legion/SKILL.md` and/or
 `~/.copilot/skills/tmux-legion/SKILL.md` so agents know how to spawn siblings and
 report status.
 
+### Pi extension
+
+[pi](https://pi.dev) panes show up as `node` to tmux, so process discovery can't
+see them and pi has no shell-hook system. Instead, copy or symlink
+[pi/tmux-legion.ts](pi/tmux-legion.ts) into `~/.pi/agent/extensions/` — it
+reports idle/working/done on pi's lifecycle events.
+
 ## Usage
 
 `prefix + g` toggles the sidebar. Inside it: `j`/`k` move, `Enter` jumps to the
