@@ -19,34 +19,3 @@ jobs:
         run: |
           nix develop --command cargo clippy --all-targets -- -D warnings
           nix develop --command cargo fmt --check
-
-  # Push the new revision into hawkish/nix's flake.lock so hosts pick it up
-  # on their next rebuild (same commit-back style as the hello-quarkus loop).
-  # Requires the NIX_REPO_TOKEN secret: a fine-grained PAT with read/write
-  # Contents permission on hawkish/nix.
-  bump-nix-repo:
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    concurrency:
-      group: bump-nix-repo
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: hawkish/nix
-          token: ${{ secrets.NIX_REPO_TOKEN }}
-      - uses: DeterminateSystems/nix-installer-action@v16
-      - name: Bump tmux-legion input
-        run: nix flake update tmux-legion
-      - name: Commit and push
-        run: |
-          if git diff --quiet flake.lock; then
-            echo "flake.lock already up to date"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add flake.lock
-          git commit -m "⬆️ deps(tmux-legion): bump to ${GITHUB_SHA::7}"
-          git push
