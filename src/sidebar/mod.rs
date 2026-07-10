@@ -1,4 +1,5 @@
 mod app;
+mod theme;
 mod ui;
 
 use crate::state::{self, Store};
@@ -53,6 +54,7 @@ fn event_loop(
     let mut ticks: u32 = 0;
 
     loop {
+        app.spinner_tick = app.spinner_tick.wrapping_add(1);
         terminal.draw(|frame| ui::render(frame, &mut app))?;
 
         // A key event, a SIGUSR1 poke, or the periodic tick each trigger one

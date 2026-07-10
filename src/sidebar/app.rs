@@ -11,6 +11,10 @@ pub enum Outcome {
 pub struct App {
     pub entries: Vec<AgentEntry>,
     pub selected: usize,
+    /// First visible entry index (kept in view range by the renderer).
+    pub scroll: usize,
+    /// Advances every render loop iteration; drives the working spinner.
+    pub spinner_tick: u32,
     /// Pane id awaiting kill confirmation (`x` pressed, y/n pending).
     pub confirm_kill: Option<String>,
 }
@@ -20,6 +24,8 @@ impl App {
         App {
             entries: Vec::new(),
             selected: 0,
+            scroll: 0,
+            spinner_tick: 0,
             confirm_kill: None,
         }
     }
