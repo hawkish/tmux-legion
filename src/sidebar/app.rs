@@ -47,6 +47,16 @@ impl App {
         self.selected = selected_pane
             .and_then(|pane| self.entries.iter().position(|e| e.pane_id == pane))
             .unwrap_or_else(|| self.selected.min(self.entries.len().saturating_sub(1)));
+
+        // Follow tmux focus: when the user switches to a tracked agent's
+        // pane, move the highlight there. Focus on the sidebar itself or on
+        // a non-agent pane matches no entry and leaves the selection alone,
+        // so j/k navigation inside the sidebar is never fought.
+        if let Some(focused) = tmux::focused_pane() {
+            if let Some(idx) = self.entries.iter().position(|e| e.pane_id == focused) {
+                self.selected = idx;
+            }
+        }
     }
 
     pub fn selected_entry(&self) -> Option<&AgentEntry> {

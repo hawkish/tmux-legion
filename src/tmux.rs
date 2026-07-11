@@ -80,6 +80,24 @@ fn parse_pane_line(line: &str) -> Option<Pane> {
     })
 }
 
+/// The pane the user is focused on: active pane of the active window of an
+/// attached session. Not `display-message -p '#{pane_id}'` — that resolves
+/// via $TMUX_PANE to the calling process's own pane (i.e. the sidebar).
+pub fn focused_pane() -> Option<String> {
+    run(&[
+        "list-panes",
+        "-a",
+        "-f",
+        "#{&&:#{session_attached},#{&&:#{window_active},#{pane_active}}}",
+        "-F",
+        "#{pane_id}",
+    ])
+    .ok()?
+    .lines()
+    .next()
+    .map(str::to_string)
+}
+
 pub fn select_pane(pane_id: &str) -> Result<()> {
     // Focus the window containing the pane first, then the pane itself.
     run(&["select-window", "-t", pane_id])?;
