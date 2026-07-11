@@ -13,12 +13,14 @@
         "x86_64-linux"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      # Single source of truth for the version: Cargo.toml.
+      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
     in
     {
       packages = forAllSystems (pkgs: rec {
         default = pkgs.rustPlatform.buildRustPackage {
           pname = "tmux-legion";
-          version = "0.1.0";
+          inherit version;
           # Only what cargo consumes: docs/CI/skill commits then don't
           # invalidate the build.
           src = nixpkgs.lib.fileset.toSource {
@@ -42,7 +44,7 @@
 
         tmuxPlugin = pkgs.tmuxPlugins.mkTmuxPlugin {
           pluginName = "tmux-legion";
-          version = "0.1.0";
+          inherit version;
           src = self;
           rtpFilePath = "tmux-legion.tmux";
           postInstall = ''
