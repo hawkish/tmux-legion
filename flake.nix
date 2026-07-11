@@ -34,6 +34,10 @@
           cargoLock.lockFile = ./Cargo.lock;
           # Integration tests need a live tmux server
           doCheck = false;
+          # The full repo, for consumers of non-Rust assets (SKILL.md,
+          # claude/hooks.json, pi/tmux-legion.ts) — `src` above is filtered
+          # to Rust inputs only and must not be referenced for those.
+          passthru.repo = self;
           meta = {
             description = "A tmux sidebar tracking every AI agent: blocked, working, done";
             homepage = "https://github.com/hawkish/tmux-legion";
