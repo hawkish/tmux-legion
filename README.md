@@ -94,9 +94,10 @@ reports idle/working/done on pi's lifecycle events.
 
 ## Usage
 
-`prefix + g` toggles the sidebar. Inside it: `j`/`k` (or arrows) move, `g`/`G` jump to
-top/bottom, `Enter` focuses the selected agent's pane, `x` kills it (confirm with `y`),
-`r` forces a rescan, `q` closes. Clicking a row selects it and focuses that pane too.
+`prefix + g` toggles the sidebar. Inside it: `j`/`k` (or arrows / mouse wheel) move,
+`g`/`G` jump to top/bottom, `Enter` focuses the selected agent's pane, `x` kills it
+(confirm with `y`), `r` forces a rescan, `q` closes. Clicking a row selects it and
+focuses that pane too, and the highlight follows whichever agent pane you focus in tmux.
 
 ### CLI
 

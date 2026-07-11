@@ -75,16 +75,31 @@ impl App {
         (idx < self.entries.len()).then_some(idx)
     }
 
-    /// Map a left-click to the entry under it: move the highlight there and
-    /// focus that agent's pane (same effect as selecting with j/k + Enter).
+    fn select_next(&mut self) {
+        if self.selected + 1 < self.entries.len() {
+            self.selected += 1;
+        }
+    }
+
+    fn select_prev(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    /// Left-click an entry: move the highlight there and focus that agent's
+    /// pane (same as j/k + Enter). The wheel moves the highlight like j/k —
+    /// the view scrolls with it, since scroll always follows the selection.
     /// `term_height` locates the footer row so header/footer clicks are ignored.
     pub fn handle_mouse(&mut self, mouse: MouseEvent, term_height: u16) -> Outcome {
-        if mouse.kind != MouseEventKind::Down(MouseButton::Left) {
-            return Outcome::Continue;
-        }
-        if let Some(idx) = self.entry_at_row(mouse.row, term_height) {
-            self.selected = idx;
-            let _ = tmux::select_pane(&self.entries[idx].pane_id);
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(idx) = self.entry_at_row(mouse.row, term_height) {
+                    self.selected = idx;
+                    let _ = tmux::select_pane(&self.entries[idx].pane_id);
+                }
+            }
+            MouseEventKind::ScrollDown => self.select_next(),
+            MouseEventKind::ScrollUp => self.select_prev(),
+            _ => {}
         }
         Outcome::Continue
     }
@@ -108,13 +123,11 @@ impl App {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => Outcome::Quit,
             KeyCode::Char('j') | KeyCode::Down => {
-                if self.selected + 1 < self.entries.len() {
-                    self.selected += 1;
-                }
+                self.select_next();
                 Outcome::Continue
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
+                self.select_prev();
                 Outcome::Continue
             }
             KeyCode::Char('g') => {
