@@ -9,7 +9,6 @@ repository = "https://github.com/hawkish/tmux-legion"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-crossterm = "0.28"
 ratatui = "0.29"
 rustix = { version = "1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }

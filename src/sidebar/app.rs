@@ -1,7 +1,9 @@
 use super::ui::ROWS_PER_ENTRY;
 use crate::state::{AgentEntry, Store};
 use crate::tmux;
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
+};
 
 pub enum Outcome {
     Continue,

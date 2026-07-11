@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-pub const LIST_FORMAT: &str = "#{pane_id}\t#{pane_current_command}\t#{session_name}\t#{window_index}\t#{window_name}\t#{@pane_agent}";
+const LIST_FORMAT: &str = "#{pane_id}\t#{pane_current_command}\t#{session_name}\t#{window_index}\t#{window_name}\t#{@pane_agent}";
 
 #[derive(Debug, Clone)]
 pub struct Pane {

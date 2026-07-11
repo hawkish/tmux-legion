@@ -18,7 +18,7 @@ const SHELLS: &[&str] = &[
     "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu",
 ];
 
-pub const DEFAULT_AGENTS: &str = "claude,copilot,codex,opencode,aider";
+const DEFAULT_AGENTS: &str = "claude,copilot,codex,opencode,aider";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentEntry {
@@ -116,19 +116,24 @@ impl Store {
         }
     }
 
-    /// Locked read-modify-write with atomic replace.
+    /// Locked read-modify-write with atomic replace. Skips the write when the
+    /// mutation was a no-op (reconcile runs every ~2s; don't churn the disk).
     pub fn mutate(&self, f: impl FnOnce(&mut StateFile)) -> Result<()> {
         fs::create_dir_all(self.path.parent().unwrap()).context("cannot create state directory")?;
         let lock = File::create(&self.lock_path).context("cannot open lock file")?;
         rustix::fs::flock(&lock, FlockOperation::LockExclusive).context("cannot lock state")?;
 
-        let mut state = self.load();
+        let before = fs::read(&self.path).unwrap_or_default();
+        let mut state: StateFile = serde_json::from_slice(&before).unwrap_or_default();
         state.version = 1;
         f(&mut state);
 
-        let tmp = self.path.with_extension("json.tmp");
-        fs::write(&tmp, serde_json::to_vec_pretty(&state)?).context("cannot write state")?;
-        fs::rename(&tmp, &self.path).context("cannot replace state file")?;
+        let after = serde_json::to_vec_pretty(&state)?;
+        if after != before {
+            let tmp = self.path.with_extension("json.tmp");
+            fs::write(&tmp, after).context("cannot write state")?;
+            fs::rename(&tmp, &self.path).context("cannot replace state file")?;
+        }
         Ok(()) // lock released when `lock` drops
     }
 }

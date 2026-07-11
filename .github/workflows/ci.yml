@@ -13,9 +13,11 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@v16
       - name: Build
         run: nix build --print-build-logs
-      - name: Test
-        run: nix develop --command cargo test
-      - name: Lint
+      - name: Test and lint
+        # Single devShell invocation: each `nix develop` pays a flake eval.
         run: |
-          nix develop --command cargo clippy --all-targets -- -D warnings
-          nix develop --command cargo fmt --check
+          nix develop --command bash -euc '
+            cargo test
+            cargo clippy --all-targets -- -D warnings
+            cargo fmt --check
+          '

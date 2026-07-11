@@ -19,7 +19,16 @@
         default = pkgs.rustPlatform.buildRustPackage {
           pname = "tmux-legion";
           version = "0.1.0";
-          src = self;
+          # Only what cargo consumes: docs/CI/skill commits then don't
+          # invalidate the build.
+          src = nixpkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = nixpkgs.lib.fileset.unions [
+              ./Cargo.toml
+              ./Cargo.lock
+              ./src
+            ];
+          };
           cargoLock.lockFile = ./Cargo.lock;
           # Integration tests need a live tmux server
           doCheck = false;

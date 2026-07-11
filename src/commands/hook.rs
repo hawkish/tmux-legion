@@ -26,19 +26,20 @@ fn try_handle(agent: &str, event: &str) -> anyhow::Result<()> {
     }
 
     let store = Store::for_current_server()?;
+    let mut registered = false;
     store.mutate(|state| match action {
         ClaudeAction::Register => {
-            state
-                .agents
-                .entry(pane_id.clone())
-                .or_insert_with(|| AgentEntry::new(&pane_id, "claude", Status::Idle, Source::Hook))
-                .last_event = Some(event.to_string());
+            let entry = state.agents.entry(pane_id.clone()).or_insert_with(|| {
+                registered = true;
+                AgentEntry::new(&pane_id, "claude", Status::Idle, Source::Hook)
+            });
+            entry.last_event = Some(event.to_string());
         }
         ClaudeAction::Set(status) => {
-            let entry = state
-                .agents
-                .entry(pane_id.clone())
-                .or_insert_with(|| AgentEntry::new(&pane_id, "claude", status, Source::Hook));
+            let entry = state.agents.entry(pane_id.clone()).or_insert_with(|| {
+                registered = true;
+                AgentEntry::new(&pane_id, "claude", status, Source::Hook)
+            });
             let message = match status {
                 Status::Blocked => payload.message.clone(),
                 _ => None,
@@ -52,8 +53,11 @@ fn try_handle(agent: &str, event: &str) -> anyhow::Result<()> {
         ClaudeAction::Ignore => {}
     })?;
 
-    // Tag the pane so discovery works even if the state file is wiped.
-    let _ = tmux::set_pane_option(&pane_id, "@pane_agent", "claude");
+    // Tag the pane so discovery/reconciliation can identify it; once is
+    // enough — hooks fire on every tool use, so don't shell out each time.
+    if registered {
+        let _ = tmux::set_pane_option(&pane_id, "@pane_agent", "claude");
+    }
     let _ = notify::poke();
     Ok(())
 }
