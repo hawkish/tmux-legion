@@ -16,6 +16,7 @@ pub fn report(
     };
 
     let store = Store::for_current_server()?;
+    let mut resolved_name = String::new();
     store.mutate(|state| {
         let entry = state.agents.entry(pane_id.clone()).or_insert_with(|| {
             AgentEntry::new(
@@ -29,9 +30,12 @@ pub fn report(
             entry.name = name.clone();
         }
         entry.set_status(status, message, Source::Reported);
+        resolved_name = entry.name.clone();
     })?;
 
-    let _ = tmux::set_pane_option(&pane_id, "@pane_agent", name.as_deref().unwrap_or(""));
+    // The tag is the pane's identity for reconciliation (it outlives command
+    // name changes under node wrappers), so always set it to the entry name.
+    let _ = tmux::set_pane_option(&pane_id, "@pane_agent", &resolved_name);
     let _ = notify::poke();
     Ok(())
 }

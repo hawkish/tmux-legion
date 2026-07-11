@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Prune entries this long after their agent exited but the pane lives on.
-const EXITED_PRUNE_SECS: u64 = 60;
+/// Long enough to notice the exit, short enough not to clutter the sidebar
+/// (and to survive an agent's shell tool briefly holding the tty foreground —
+/// the Alive verdict resets the timer as soon as the agent is back).
+const EXITED_PRUNE_SECS: u64 = 15;
 
 const SHELLS: &[&str] = &[
     "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu",
@@ -153,6 +156,26 @@ fn known_agents() -> Vec<String> {
     list.split(',').map(|s| s.trim().to_string()).collect()
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PaneVerdict {
+    /// The agent (or its node wrapper, per the @pane_agent tag) is foreground.
+    Alive,
+    /// A shell is foreground: the agent process ended, the pane lives on.
+    AgentExited,
+    /// The pane id was recycled for an unrelated program; the entry is stale.
+    Replaced,
+}
+
+fn judge_pane(entry_name: &str, pane: &tmux::Pane) -> PaneVerdict {
+    if is_shell(&pane.current_command) {
+        PaneVerdict::AgentExited
+    } else if pane.pane_agent == entry_name || pane.current_command == entry_name {
+        PaneVerdict::Alive
+    } else {
+        PaneVerdict::Replaced
+    }
+}
+
 /// Sync state with the live tmux server: drop entries for dead panes, mark
 /// exited agents, discover untracked agent panes, refresh window metadata.
 pub fn reconcile(store: &Store) -> Result<()> {
@@ -161,25 +184,32 @@ pub fn reconcile(store: &Store) -> Result<()> {
     let now = now();
 
     store.mutate(|state| {
-        // Remove entries whose pane is gone, or whose agent exited long ago.
+        // Remove entries whose pane is gone or recycled, or whose agent
+        // exited a while ago.
         state.agents.retain(|pane_id, entry| {
             let Some(pane) = panes.iter().find(|p| &p.pane_id == pane_id) else {
                 return false;
             };
-            if is_shell(&pane.current_command) {
-                match entry.exited_at {
-                    Some(t) => return now.saturating_sub(t) < EXITED_PRUNE_SECS,
+            match judge_pane(&entry.name, pane) {
+                PaneVerdict::Alive => {
+                    entry.exited_at = None;
+                    true
+                }
+                // A shell is foreground. Don't rewrite the agent's status —
+                // hook/reported agents signal their own state, and a shell can
+                // be foreground only transiently (e.g. an agent's bash tool).
+                // Start a grace timer instead and remove the row once the
+                // shell has held the pane for the full window; if the agent
+                // returns first, the Alive arm clears the timer.
+                PaneVerdict::AgentExited => match entry.exited_at {
+                    Some(t) => now.saturating_sub(t) < EXITED_PRUNE_SECS,
                     None => {
                         entry.exited_at = Some(now);
-                        entry.status = Status::Done;
-                        entry.message = Some("exited".to_string());
-                        entry.status_changed_at = now;
+                        true
                     }
-                }
-            } else {
-                entry.exited_at = None;
+                },
+                PaneVerdict::Replaced => false,
             }
-            true
         });
 
         for pane in &panes {
@@ -276,5 +306,37 @@ mod tests {
         assert!(is_shell("bash"));
         assert!(!is_shell("claude"));
         assert!(!is_shell("node"));
+    }
+
+    fn pane(command: &str, tag: &str) -> tmux::Pane {
+        tmux::Pane {
+            pane_id: "%9".into(),
+            current_command: command.into(),
+            session: "s".into(),
+            window_index: 1,
+            window_name: "w".into(),
+            pane_agent: tag.into(),
+        }
+    }
+
+    #[test]
+    fn pane_verdicts() {
+        // Agent foreground, matched by command name or tag (node wrappers).
+        assert_eq!(
+            judge_pane("claude", &pane("claude", "claude")),
+            PaneVerdict::Alive
+        );
+        assert_eq!(judge_pane("pi", &pane("node", "pi")), PaneVerdict::Alive);
+        // Shell foreground: agent exited, keep briefly.
+        assert_eq!(
+            judge_pane("claude", &pane("zsh", "claude")),
+            PaneVerdict::AgentExited
+        );
+        // Pane id recycled by an unrelated program (e.g. the sidebar itself).
+        assert_eq!(
+            judge_pane("claude", &pane("tmux-legion", "")),
+            PaneVerdict::Replaced
+        );
+        assert_eq!(judge_pane("pi", &pane("vim", "")), PaneVerdict::Replaced);
     }
 }
