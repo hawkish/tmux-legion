@@ -75,6 +75,7 @@ reports idle/working/done on pi's lifecycle events.
 
 `prefix + g` toggles the sidebar. Inside it: `j`/`k` move, `Enter` jumps to the
 agent's pane, `x` kills it (confirm with `y`), `r` forces a rescan, `q` closes.
+Clicking a row also selects it and focuses that agent's pane.
 
 ### CLI
 

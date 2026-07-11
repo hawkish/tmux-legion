@@ -5,7 +5,8 @@ mod ui;
 use crate::state::{self, Store};
 use crate::tmux;
 use anyhow::Result;
-use crossterm::event::{self, Event};
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
+use crossterm::execute;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -38,7 +39,11 @@ pub fn run() -> Result<()> {
     signal_hook::flag::register(signal_hook::consts::SIGUSR1, Arc::clone(&redraw))?;
 
     let mut terminal = ratatui::init();
+    // Route clicks in this pane to us instead of tmux, so list rows are
+    // clickable. tmux forwards mouse events to a pane in mouse mode.
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
     let result = event_loop(&mut terminal, &store, &redraw);
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     result
 }
@@ -60,15 +65,18 @@ fn event_loop(
         // A key event, a SIGUSR1 poke, or the periodic tick each trigger one
         // reload+redraw per iteration, which coalesces bursts of pokes.
         if event::poll(POLL_TIMEOUT)? {
-            if let Event::Key(key) = event::read()? {
-                match app.handle_key(key, store) {
-                    app::Outcome::Quit => return Ok(()),
-                    app::Outcome::Reconcile => {
-                        let _ = state::reconcile(store);
-                        app.reload(store);
-                    }
-                    app::Outcome::Continue => {}
+            let outcome = match event::read()? {
+                Event::Key(key) => Some(app.handle_key(key, store)),
+                Event::Mouse(m) => Some(app.handle_mouse(m, terminal.size()?.height)),
+                _ => None,
+            };
+            match outcome {
+                Some(app::Outcome::Quit) => return Ok(()),
+                Some(app::Outcome::Reconcile) => {
+                    let _ = state::reconcile(store);
+                    app.reload(store);
                 }
+                Some(app::Outcome::Continue) | None => {}
             }
         }
 
