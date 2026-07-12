@@ -42,9 +42,12 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
   tmux, so process discovery can't see them.
 - **Any other agent** (Copilot CLI, codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
-- A reconciler scans panes (`pane_current_command`, `@pane_agent`) to discover agents,
-  drop rows whose pane was closed or reused, and remove an agent ~15s after it exits —
-  no terminal-output scraping.
+- A reconciler discovers agents via `pane_current_command` (command-name match) or
+  `@pane_agent` (hook/spawn-set tag). When the tag is set but the foreground command
+  differs, it walks the process tree (`ps`) from the pane's PID to verify the agent is
+  still running — correctly handling interpreter wrappers (node, bun, …) and clearing
+  stale tags left behind after the agent exits. Rows are dropped when the pane closes,
+  is reused, or the agent has been gone for ~15s — no terminal-output scraping.
 - State lives in a JSON file per tmux server (`~/.local/state/tmux-legion/`); writers
   take a lock and replace it atomically, the sidebar redraws on SIGUSR1 pokes.
 
