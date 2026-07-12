@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod hook;
 mod notify;
+mod process;
 mod sidebar;
 mod state;
 mod status;

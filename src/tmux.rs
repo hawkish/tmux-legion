@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-const LIST_FORMAT: &str = "#{pane_id}\t#{pane_current_command}\t#{session_name}\t#{window_index}\t#{window_name}\t#{@pane_agent}";
+const LIST_FORMAT: &str = "#{pane_id}\t#{pane_current_command}\t#{session_name}\t#{window_index}\t#{window_name}\t#{@pane_agent}\t#{pane_pid}";
 
 #[derive(Debug, Clone)]
 pub struct Pane {
@@ -11,6 +11,7 @@ pub struct Pane {
     pub window_index: u32,
     pub window_name: String,
     pub pane_agent: String,
+    pub pane_pid: Option<u32>,
 }
 
 pub fn run(args: &[&str]) -> Result<String> {
@@ -63,6 +64,10 @@ pub fn set_pane_option(pane: &str, name: &str, value: &str) -> Result<()> {
     run(&["set-option", "-p", "-t", pane, name, value]).map(|_| ())
 }
 
+pub fn unset_pane_option(pane: &str, name: &str) -> Result<()> {
+    run(&["set-option", "-pu", "-t", pane, name]).map(|_| ())
+}
+
 pub fn list_panes() -> Result<Vec<Pane>> {
     let out = run(&["list-panes", "-a", "-F", LIST_FORMAT])?;
     Ok(out.lines().filter_map(parse_pane_line).collect())
@@ -77,6 +82,7 @@ fn parse_pane_line(line: &str) -> Option<Pane> {
         window_index: f.next()?.parse().ok()?,
         window_name: f.next()?.to_string(),
         pane_agent: f.next().unwrap_or("").to_string(),
+        pane_pid: f.next().and_then(|s| s.parse().ok()),
     })
 }
 
@@ -121,18 +127,26 @@ mod tests {
 
     #[test]
     fn parses_pane_line() {
-        let p = parse_pane_line("%5\tclaude\tmain\t2\tapi\tclaude").unwrap();
+        let p = parse_pane_line("%5\tclaude\tmain\t2\tapi\tclaude\t12345").unwrap();
         assert_eq!(p.pane_id, "%5");
         assert_eq!(p.current_command, "claude");
         assert_eq!(p.session, "main");
         assert_eq!(p.window_index, 2);
         assert_eq!(p.window_name, "api");
         assert_eq!(p.pane_agent, "claude");
+        assert_eq!(p.pane_pid, Some(12345));
     }
 
     #[test]
     fn parses_pane_line_without_agent() {
-        let p = parse_pane_line("%0\tzsh\tmain\t1\tshell\t").unwrap();
+        let p = parse_pane_line("%0\tzsh\tmain\t1\tshell\t\t99").unwrap();
         assert_eq!(p.pane_agent, "");
+        assert_eq!(p.pane_pid, Some(99));
+    }
+
+    #[test]
+    fn parses_pane_line_without_pid() {
+        let p = parse_pane_line("%0\tzsh\tmain\t1\tshell\t").unwrap();
+        assert_eq!(p.pane_pid, None);
     }
 }

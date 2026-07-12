@@ -1,3 +1,4 @@
+use crate::process::ProcessSnapshot;
 use crate::status::{Source, Status};
 use crate::tmux;
 use anyhow::{Context, Result};
@@ -171,13 +172,34 @@ enum PaneVerdict {
     Replaced,
 }
 
-fn judge_pane(entry_name: &str, pane: &tmux::Pane) -> PaneVerdict {
+fn judge_pane(entry_name: &str, pane: &tmux::Pane, snapshot: Option<&ProcessSnapshot>) -> PaneVerdict {
+    // Direct command match: the agent binary is the foreground process.
+    if pane.current_command == entry_name {
+        return PaneVerdict::Alive;
+    }
+
+    // Tag doesn't match either: pane was recycled for an unrelated program.
+    if pane.pane_agent != entry_name {
+        return PaneVerdict::Replaced;
+    }
+
+    // pane_agent matches but current_command differs (wrapper / shell / something else).
+    // Use the process tree to determine truth when we have a snapshot + pid.
+    if let (Some(snap), Some(pid)) = (snapshot, pane.pane_pid) {
+        return if snap.tree_has_agent(pid, entry_name) {
+            PaneVerdict::Alive
+        } else if is_shell(&pane.current_command) {
+            PaneVerdict::AgentExited
+        } else {
+            PaneVerdict::Replaced
+        };
+    }
+
+    // Fallback without snapshot: shell → exited, anything else → alive (wrapper case).
     if is_shell(&pane.current_command) {
         PaneVerdict::AgentExited
-    } else if pane.pane_agent == entry_name || pane.current_command == entry_name {
-        PaneVerdict::Alive
     } else {
-        PaneVerdict::Replaced
+        PaneVerdict::Alive
     }
 }
 
@@ -188,6 +210,15 @@ pub fn reconcile(store: &Store) -> Result<()> {
     let agents = known_agents();
     let now = now();
 
+    // Only pay the ps cost when there are tagged panes that need verification.
+    let snapshot = panes
+        .iter()
+        .any(|p| !p.pane_agent.is_empty())
+        .then(ProcessSnapshot::scan)
+        .flatten();
+
+    let mut panes_to_clear: Vec<String> = Vec::new();
+
     store.mutate(|state| {
         // Remove entries whose pane is gone or recycled, or whose agent
         // exited a while ago.
@@ -195,25 +226,28 @@ pub fn reconcile(store: &Store) -> Result<()> {
             let Some(pane) = panes.iter().find(|p| &p.pane_id == pane_id) else {
                 return false;
             };
-            match judge_pane(&entry.name, pane) {
+            match judge_pane(&entry.name, pane, snapshot.as_ref()) {
                 PaneVerdict::Alive => {
                     entry.exited_at = None;
                     true
                 }
-                // A shell is foreground. Don't rewrite the agent's status —
-                // hook/reported agents signal their own state, and a shell can
-                // be foreground only transiently (e.g. an agent's bash tool).
-                // Start a grace timer instead and remove the row once the
-                // shell has held the pane for the full window; if the agent
-                // returns first, the Alive arm clears the timer.
+                // A shell (or verified-gone agent) is foreground. Start a grace
+                // timer; clear the tag and remove the row once expired.
                 PaneVerdict::AgentExited => match entry.exited_at {
-                    Some(t) => now.saturating_sub(t) < EXITED_PRUNE_SECS,
+                    Some(t) if now.saturating_sub(t) >= EXITED_PRUNE_SECS => {
+                        panes_to_clear.push(pane_id.clone());
+                        false
+                    }
+                    Some(_) => true,
                     None => {
                         entry.exited_at = Some(now);
                         true
                     }
                 },
-                PaneVerdict::Replaced => false,
+                PaneVerdict::Replaced => {
+                    panes_to_clear.push(pane_id.clone());
+                    false
+                }
             }
         });
 
@@ -229,15 +263,26 @@ pub fn reconcile(store: &Store) -> Result<()> {
                 };
                 if let Some(name) = name {
                     if !is_shell(&pane.current_command) {
-                        state.agents.insert(
-                            pane.pane_id.clone(),
-                            AgentEntry::new(
-                                &pane.pane_id,
-                                &name,
-                                Status::Unknown,
-                                Source::Detected,
-                            ),
-                        );
+                        // When the tag is set but the command doesn't match, verify
+                        // via the process tree before trusting the stale tag.
+                        let verified = pane.current_command == name
+                            || match (snapshot.as_ref(), pane.pane_pid) {
+                                (Some(snap), Some(pid)) => snap.tree_has_agent(pid, &name),
+                                _ => true, // no snapshot: give benefit of the doubt
+                            };
+                        if verified {
+                            state.agents.insert(
+                                pane.pane_id.clone(),
+                                AgentEntry::new(
+                                    &pane.pane_id,
+                                    &name,
+                                    Status::Unknown,
+                                    Source::Detected,
+                                ),
+                            );
+                        } else {
+                            panes_to_clear.push(pane.pane_id.clone());
+                        }
                     }
                 }
             }
@@ -248,7 +293,15 @@ pub fn reconcile(store: &Store) -> Result<()> {
                 entry.window_name = pane.window_name.clone();
             }
         }
-    })
+    })?;
+
+    // Clear the pane-agent tag outside the state lock so tmux calls don't
+    // block the write path. Once cleared, reconcile won't re-discover the pane.
+    for pane_id in panes_to_clear {
+        let _ = tmux::unset_pane_option(&pane_id, "@pane_agent");
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -321,27 +374,75 @@ mod tests {
             window_index: 1,
             window_name: "w".into(),
             pane_agent: tag.into(),
+            pane_pid: None,
         }
+    }
+
+    fn pane_with_pid(command: &str, tag: &str, pid: u32) -> tmux::Pane {
+        tmux::Pane { pane_pid: Some(pid), ..pane(command, tag) }
     }
 
     #[test]
     fn pane_verdicts() {
-        // Agent foreground, matched by command name or tag (node wrappers).
+        // Agent foreground, matched by command name or tag (node wrappers, no snapshot).
         assert_eq!(
-            judge_pane("claude", &pane("claude", "claude")),
+            judge_pane("claude", &pane("claude", "claude"), None),
             PaneVerdict::Alive
         );
-        assert_eq!(judge_pane("pi", &pane("node", "pi")), PaneVerdict::Alive);
+        assert_eq!(judge_pane("pi", &pane("node", "pi"), None), PaneVerdict::Alive);
         // Shell foreground: agent exited, keep briefly.
         assert_eq!(
-            judge_pane("claude", &pane("zsh", "claude")),
+            judge_pane("claude", &pane("zsh", "claude"), None),
             PaneVerdict::AgentExited
         );
         // Pane id recycled by an unrelated program (e.g. the sidebar itself).
         assert_eq!(
-            judge_pane("claude", &pane("tmux-legion", "")),
+            judge_pane("claude", &pane("tmux-legion", ""), None),
             PaneVerdict::Replaced
         );
-        assert_eq!(judge_pane("pi", &pane("vim", "")), PaneVerdict::Replaced);
+        assert_eq!(judge_pane("pi", &pane("vim", ""), None), PaneVerdict::Replaced);
+    }
+
+    #[test]
+    fn process_tree_detects_alive_wrapper() {
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 fish fish\n101 100 node node /usr/local/bin/pi\n",
+        );
+        assert_eq!(
+            judge_pane("pi", &pane_with_pid("node", "pi", 100), Some(&snap)),
+            PaneVerdict::Alive
+        );
+    }
+
+    #[test]
+    fn process_tree_detects_replaced_by_top() {
+        // top is running, claude is nowhere in the process tree
+        let snap = ProcessSnapshot::from_ps_output("100 1 top top\n");
+        assert_eq!(
+            judge_pane("claude", &pane_with_pid("top", "claude", 100), Some(&snap)),
+            PaneVerdict::Replaced
+        );
+    }
+
+    #[test]
+    fn process_tree_detects_agent_exited_via_shell() {
+        // shell is foreground and claude is not in the tree
+        let snap = ProcessSnapshot::from_ps_output("100 1 zsh zsh\n");
+        assert_eq!(
+            judge_pane("claude", &pane_with_pid("zsh", "claude", 100), Some(&snap)),
+            PaneVerdict::AgentExited
+        );
+    }
+
+    #[test]
+    fn process_tree_shell_with_agent_subprocess_is_alive() {
+        // Agent spawned a shell tool; claude is still in the tree
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 claude claude\n101 100 bash bash -c ls\n",
+        );
+        assert_eq!(
+            judge_pane("claude", &pane_with_pid("bash", "claude", 100), Some(&snap)),
+            PaneVerdict::Alive
+        );
     }
 }
