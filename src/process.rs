@@ -21,7 +21,9 @@ impl ProcessSnapshot {
         if !output.status.success() {
             return None;
         }
-        Some(Self::from_ps_output(&String::from_utf8_lossy(&output.stdout)))
+        Some(Self::from_ps_output(&String::from_utf8_lossy(
+            &output.stdout,
+        )))
     }
 
     pub fn from_ps_output(ps_output: &str) -> Self {
@@ -96,9 +98,7 @@ fn matches_agent(info: &ProcessInfo, agent_name: &str) -> bool {
         return true;
     }
     // For interpreter wrappers (e.g. "node /path/to/agent"), check the second token too.
-    tokens
-        .next()
-        .map(|a| cmd_basename(a.trim_matches('"'))) == Some(agent_name)
+    tokens.next().map(|a| cmd_basename(a.trim_matches('"'))) == Some(agent_name)
 }
 
 #[cfg(test)]
@@ -130,15 +130,24 @@ mod tests {
     #[test]
     fn matches_agent_comm_and_args() {
         assert!(matches_agent(
-            &ProcessInfo { comm: "claude".into(), args: "/opt/homebrew/bin/claude".into() },
+            &ProcessInfo {
+                comm: "claude".into(),
+                args: "/opt/homebrew/bin/claude".into()
+            },
             "claude"
         ));
         assert!(matches_agent(
-            &ProcessInfo { comm: "node".into(), args: "/usr/local/bin/opencode".into() },
+            &ProcessInfo {
+                comm: "node".into(),
+                args: "/usr/local/bin/opencode".into()
+            },
             "opencode"
         ));
         assert!(!matches_agent(
-            &ProcessInfo { comm: "top".into(), args: "top".into() },
+            &ProcessInfo {
+                comm: "top".into(),
+                args: "top".into()
+            },
             "claude"
         ));
     }

@@ -172,7 +172,11 @@ enum PaneVerdict {
     Replaced,
 }
 
-fn judge_pane(entry_name: &str, pane: &tmux::Pane, snapshot: Option<&ProcessSnapshot>) -> PaneVerdict {
+fn judge_pane(
+    entry_name: &str,
+    pane: &tmux::Pane,
+    snapshot: Option<&ProcessSnapshot>,
+) -> PaneVerdict {
     // Direct command match: the agent binary is the foreground process.
     if pane.current_command == entry_name {
         return PaneVerdict::Alive;
@@ -379,7 +383,10 @@ mod tests {
     }
 
     fn pane_with_pid(command: &str, tag: &str, pid: u32) -> tmux::Pane {
-        tmux::Pane { pane_pid: Some(pid), ..pane(command, tag) }
+        tmux::Pane {
+            pane_pid: Some(pid),
+            ..pane(command, tag)
+        }
     }
 
     #[test]
@@ -389,7 +396,10 @@ mod tests {
             judge_pane("claude", &pane("claude", "claude"), None),
             PaneVerdict::Alive
         );
-        assert_eq!(judge_pane("pi", &pane("node", "pi"), None), PaneVerdict::Alive);
+        assert_eq!(
+            judge_pane("pi", &pane("node", "pi"), None),
+            PaneVerdict::Alive
+        );
         // Shell foreground: agent exited, keep briefly.
         assert_eq!(
             judge_pane("claude", &pane("zsh", "claude"), None),
@@ -400,7 +410,10 @@ mod tests {
             judge_pane("claude", &pane("tmux-legion", ""), None),
             PaneVerdict::Replaced
         );
-        assert_eq!(judge_pane("pi", &pane("vim", ""), None), PaneVerdict::Replaced);
+        assert_eq!(
+            judge_pane("pi", &pane("vim", ""), None),
+            PaneVerdict::Replaced
+        );
     }
 
     #[test]
@@ -437,9 +450,8 @@ mod tests {
     #[test]
     fn process_tree_shell_with_agent_subprocess_is_alive() {
         // Agent spawned a shell tool; claude is still in the tree
-        let snap = ProcessSnapshot::from_ps_output(
-            "100 1 claude claude\n101 100 bash bash -c ls\n",
-        );
+        let snap =
+            ProcessSnapshot::from_ps_output("100 1 claude claude\n101 100 bash bash -c ls\n");
         assert_eq!(
             judge_pane("claude", &pane_with_pid("bash", "claude", 100), Some(&snap)),
             PaneVerdict::Alive
