@@ -172,6 +172,28 @@ enum PaneVerdict {
     Replaced,
 }
 
+/// Name the agent in an untracked pane: the @pane_agent tag, a direct
+/// command-name match, or — for interpreter wrappers like "node" — a
+/// process-tree search for any known agent.
+fn discover_name(
+    pane: &tmux::Pane,
+    agents: &[String],
+    snapshot: Option<&ProcessSnapshot>,
+) -> Option<String> {
+    if !pane.pane_agent.is_empty() {
+        return Some(pane.pane_agent.clone());
+    }
+    if agents.iter().any(|a| a == &pane.current_command) {
+        return Some(pane.current_command.clone());
+    }
+    if crate::process::is_interpreter(&pane.current_command) {
+        if let (Some(snap), Some(pid)) = (snapshot, pane.pane_pid) {
+            return snap.find_agent_in_tree(pid, agents);
+        }
+    }
+    None
+}
+
 fn judge_pane(
     entry_name: &str,
     pane: &tmux::Pane,
@@ -214,14 +236,16 @@ pub fn reconcile(store: &Store) -> Result<()> {
     let agents = known_agents();
     let now = now();
 
-    // Only pay the ps cost when there are tagged panes that need verification.
+    // Only pay the ps cost when a pane needs process-tree verification
+    // (tagged) or could hide a wrapped agent (interpreter foreground).
     let snapshot = panes
         .iter()
-        .any(|p| !p.pane_agent.is_empty())
+        .any(|p| !p.pane_agent.is_empty() || crate::process::is_interpreter(&p.current_command))
         .then(ProcessSnapshot::scan)
         .flatten();
 
     let mut panes_to_clear: Vec<String> = Vec::new();
+    let mut panes_to_tag: Vec<(String, String)> = Vec::new();
 
     store.mutate(|state| {
         // Remove entries whose pane is gone or recycled, or whose agent
@@ -258,14 +282,7 @@ pub fn reconcile(store: &Store) -> Result<()> {
         for pane in &panes {
             // Discover agent panes we aren't tracking yet.
             if !state.agents.contains_key(&pane.pane_id) {
-                let name = if !pane.pane_agent.is_empty() {
-                    Some(pane.pane_agent.clone())
-                } else if agents.iter().any(|a| a == &pane.current_command) {
-                    Some(pane.current_command.clone())
-                } else {
-                    None
-                };
-                if let Some(name) = name {
+                if let Some(name) = discover_name(pane, &agents, snapshot.as_ref()) {
                     if !is_shell(&pane.current_command) {
                         // When the tag is set but the command doesn't match, verify
                         // via the process tree before trusting the stale tag.
@@ -275,6 +292,12 @@ pub fn reconcile(store: &Store) -> Result<()> {
                                 _ => true, // no snapshot: give benefit of the doubt
                             };
                         if verified {
+                            // Tree-discovered wrapper panes carry no tag yet; set
+                            // one so the next reconcile's liveness check takes
+                            // the tag + process-tree path instead of Replaced.
+                            if pane.pane_agent.is_empty() && pane.current_command != name {
+                                panes_to_tag.push((pane.pane_id.clone(), name.clone()));
+                            }
                             state.agents.insert(
                                 pane.pane_id.clone(),
                                 AgentEntry::new(
@@ -299,10 +322,13 @@ pub fn reconcile(store: &Store) -> Result<()> {
         }
     })?;
 
-    // Clear the pane-agent tag outside the state lock so tmux calls don't
-    // block the write path. Once cleared, reconcile won't re-discover the pane.
+    // Tmux calls happen outside the state lock so they don't block the write
+    // path. Once cleared, reconcile won't re-discover the pane.
     for pane_id in panes_to_clear {
         let _ = tmux::unset_pane_option(&pane_id, "@pane_agent");
+    }
+    for (pane_id, name) in panes_to_tag {
+        let _ = tmux::set_pane_option(&pane_id, "@pane_agent", &name);
     }
 
     Ok(())
@@ -444,6 +470,42 @@ mod tests {
         assert_eq!(
             judge_pane("claude", &pane_with_pid("zsh", "claude", 100), Some(&snap)),
             PaneVerdict::AgentExited
+        );
+    }
+
+    #[test]
+    fn discover_name_prefers_tag_then_command_then_tree() {
+        let agents: Vec<String> = vec!["claude".into(), "opencode".into()];
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 node node /usr/local/bin/opencode\n101 100 node node worker.js\n",
+        );
+
+        // Tag wins outright.
+        assert_eq!(
+            discover_name(&pane("node", "pi"), &agents, Some(&snap)),
+            Some("pi".into())
+        );
+        // Direct command-name match, no snapshot needed.
+        assert_eq!(
+            discover_name(&pane("claude", ""), &agents, None),
+            Some("claude".into())
+        );
+        // Interpreter wrapper: found via the process tree.
+        assert_eq!(
+            discover_name(&pane_with_pid("node", "", 100), &agents, Some(&snap)),
+            Some("opencode".into())
+        );
+        // Interpreter with no agent underneath: not an agent pane.
+        assert_eq!(
+            discover_name(&pane_with_pid("node", "", 101), &agents, Some(&snap)),
+            None
+        );
+        // Interpreter but no snapshot/pid: don't guess.
+        assert_eq!(discover_name(&pane("node", ""), &agents, Some(&snap)), None);
+        // Non-interpreter, non-agent command stays invisible.
+        assert_eq!(
+            discover_name(&pane_with_pid("vim", "", 100), &agents, Some(&snap)),
+            None
         );
     }
 

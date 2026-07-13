@@ -38,16 +38,19 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
 - **Claude Code** agents are tracked automatically via hooks: prompt/tool activity ⇒
   working, permission requests ⇒ blocked, turn finished ⇒ done, session end ⇒ removed.
 - **pi** ([pi.dev](https://pi.dev)) reports via a bundled extension on its lifecycle
-  events (see [Pi extension](#pi-extension) below) — its panes appear as `node` to
-  tmux, so process discovery can't see them.
+  events (see [Pi extension](#pi-extension) below) — pi has no shell-hook system, so
+  the extension is what supplies its status.
 - **Any other agent** (Copilot CLI, codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
-- A reconciler discovers agents via `pane_current_command` (command-name match) or
-  `@pane_agent` (hook/spawn-set tag). When the tag is set but the foreground command
-  differs, it walks the process tree (`ps`) from the pane's PID to verify the agent is
-  still running — correctly handling interpreter wrappers (node, bun, …) and clearing
-  stale tags left behind after the agent exits. Rows are dropped when the pane closes,
-  is reused, or the agent has been gone for ~15s — no terminal-output scraping.
+- A reconciler discovers agents via `pane_current_command` (command-name match),
+  `@pane_agent` (hook/spawn-set tag), or — when the foreground command is an
+  interpreter (node, bun, deno) — by searching the pane's process tree for any
+  command in `@legion_agents`, so interpreter-wrapped CLIs are found even without
+  hooks. When the tag is set but the foreground command differs, it walks the
+  process tree (`ps`) from the pane's PID to verify the agent is still running,
+  clearing stale tags left behind after the agent exits. Rows are dropped when the
+  pane closes, is reused, or the agent has been gone for ~15s — no terminal-output
+  scraping.
 - State lives in a JSON file per tmux server (`~/.local/state/tmux-legion/`); writers
   take a lock and replace it atomically, the sidebar redraws on SIGUSR1 pokes.
 
@@ -90,8 +93,9 @@ report status.
 
 ### Pi extension
 
-[pi](https://pi.dev) panes show up as `node` to tmux, so process discovery can't
-see them and pi has no shell-hook system. Instead, copy or symlink
+[pi](https://pi.dev) has no shell-hook system, so it can't report status the way
+Claude Code hooks do (adding `pi` to `@legion_agents` gets its pane discovered via
+the process tree, but only with an "unknown" status). Instead, copy or symlink
 [pi/tmux-legion.ts](pi/tmux-legion.ts) into `~/.pi/agent/extensions/` — it
 reports idle/working/done on pi's lifecycle events.
 

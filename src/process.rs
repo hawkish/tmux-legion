@@ -79,6 +79,25 @@ impl ProcessSnapshot {
                 None => false,
             })
     }
+
+    /// Search the pane's process tree for any of the known agents. Used to
+    /// discover interpreter-wrapped agents whose pane command is just "node".
+    pub fn find_agent_in_tree(&self, seed_pid: u32, agent_names: &[String]) -> Option<String> {
+        self.descendants(seed_pid).iter().find_map(|&pid| {
+            let info = self.info_by_pid.get(&pid)?;
+            agent_names
+                .iter()
+                .find(|name| matches_agent(info, name))
+                .cloned()
+        })
+    }
+}
+
+/// Runtimes that hide the real agent name behind their own process name.
+const INTERPRETERS: &[&str] = &["node", "bun", "deno"];
+
+pub fn is_interpreter(command: &str) -> bool {
+    INTERPRETERS.contains(&cmd_basename(command))
 }
 
 fn cmd_basename(s: &str) -> &str {
@@ -93,12 +112,17 @@ fn matches_agent(info: &ProcessInfo, agent_name: &str) -> bool {
         return true;
     }
     let mut tokens = info.args.split_whitespace();
-    let first = tokens.next().map(|a| cmd_basename(a.trim_matches('"')));
-    if first == Some(agent_name) {
+    let Some(first) = tokens.next().map(|a| cmd_basename(a.trim_matches('"'))) else {
+        return false;
+    };
+    if first == agent_name {
         return true;
     }
-    // For interpreter wrappers (e.g. "node /path/to/agent"), check the second token too.
-    tokens.next().map(|a| cmd_basename(a.trim_matches('"'))) == Some(agent_name)
+    // For interpreter wrappers (e.g. "node /path/to/agent"), check the second
+    // token too — but only behind a known interpreter, so "less ./claude"
+    // doesn't count as claude.
+    is_interpreter(first)
+        && tokens.next().map(|a| cmd_basename(a.trim_matches('"'))) == Some(agent_name)
 }
 
 #[cfg(test)]
@@ -150,5 +174,48 @@ mod tests {
             },
             "claude"
         ));
+        // Second token only counts behind a known interpreter.
+        assert!(matches_agent(
+            &ProcessInfo {
+                comm: "node".into(),
+                args: "node /usr/local/bin/opencode".into()
+            },
+            "opencode"
+        ));
+        assert!(!matches_agent(
+            &ProcessInfo {
+                comm: "less".into(),
+                args: "less ./claude".into()
+            },
+            "claude"
+        ));
+        assert!(!matches_agent(
+            &ProcessInfo {
+                comm: "vim".into(),
+                args: "vim claude".into()
+            },
+            "claude"
+        ));
+    }
+
+    #[test]
+    fn interpreter_detection() {
+        assert!(is_interpreter("node"));
+        assert!(is_interpreter("/usr/local/bin/bun"));
+        assert!(!is_interpreter("zsh"));
+        assert!(!is_interpreter("claude"));
+    }
+
+    #[test]
+    fn find_agent_in_tree_names_wrapped_agent() {
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 fish fish\n101 100 node node /usr/local/bin/opencode\n",
+        );
+        let agents: Vec<String> = vec!["claude".into(), "opencode".into()];
+        assert_eq!(
+            snap.find_agent_in_tree(100, &agents),
+            Some("opencode".into())
+        );
+        assert_eq!(snap.find_agent_in_tree(100, &["claude".into()]), None);
     }
 }
