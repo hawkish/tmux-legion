@@ -1,6 +1,8 @@
 # tmux-legion
 
-A tmux sidebar that tracks every AI agent in your session: **blocked**, **working**, **done**.
+A tmux sidebar that tracks every AI agent in your session: **blocked**, **working**,
+**done**. Hooks drive the status where the agent supports them; process-tree
+discovery finds the rest — including node-wrapped CLIs — with zero configuration.
 
 Inspired by [tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar) (sidebar
 mechanics, Claude Code hooks) and [herdr](https://github.com/ogulcancelik/herdr)
@@ -10,25 +12,27 @@ mechanics, Claude Code hooks) and [herdr](https://github.com/ogulcancelik/herdr)
 ┌────────────────────┬─────────────────────────┐
 │ agents      ● 1 / 3│  $ claude               │
 │ ⠹ claude           │  > refactoring auth...  │
-│   working · 2:api  │                         │
+│   working · api    │                         │
 │ ◉ copilot          │                         │
-│   blocked · 3:docs │                         │
+│   blocked · docs   │                         │
 │ ● reviewer         │                         │
-│   done · 4:infra   │                         │
+│   done · infra     │                         │
 │                    │                         │
 │ j/k ↵ jump x kill q│                         │
 └────────────────────┴─────────────────────────┘
 ```
 
-Each agent is a two-line row — a status glyph + name, then `status · window · message` —
-styled after herdr's agents panel (Catppuccin Mocha):
+Each agent is a two-line row — a status glyph + name, then `status · directory ·
+message`, where the directory is the pane's working directory (so agents split
+across repos or worktrees stay distinguishable). Styled after herdr's agents
+panel (Catppuccin Mocha):
 
 | Glyph | Status | Meaning |
 |---|---|---|
 | `⠋` spinner (yellow) | working | actively running |
 | `◉` (red) | blocked | waiting on you (permission / input) |
 | `●` (teal) | done | turn finished, still alive |
-| `✓` (green) | idle | |
+| `✓` (green) | idle | waiting for a prompt |
 | `○` (gray) | unknown | discovered but unreported |
 
 The header shows the agent count, turning into a red `● N /` badge when any are blocked.
@@ -42,15 +46,16 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
   the extension is what supplies its status.
 - **Any other agent** (Copilot CLI, codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
-- A reconciler discovers agents via `pane_current_command` (command-name match),
-  `@pane_agent` (hook/spawn-set tag), or — when the foreground command is an
-  interpreter (node, bun, deno) — by searching the pane's process tree for any
-  command in `@legion_agents`, so interpreter-wrapped CLIs are found even without
-  hooks. When the tag is set but the foreground command differs, it walks the
-  process tree (`ps`) from the pane's PID to verify the agent is still running,
-  clearing stale tags left behind after the agent exits. Rows are dropped when the
-  pane closes, is reused, or the agent has been gone for ~15s — no terminal-output
-  scraping.
+- A reconciler (every ~2s) **discovers** agents three ways: the foreground command
+  matches `@legion_agents`, the pane carries a `@pane_agent` tag (set by hooks or
+  `spawn`), or — when the foreground command is an interpreter (node, bun, deno) —
+  a command in `@legion_agents` appears in the pane's process tree, so
+  interpreter-wrapped CLIs are found even without hooks.
+- The same reconciler **verifies liveness**: when a pane's tag no longer matches its
+  foreground command, it walks the process tree (`ps`) from the pane's PID to tell
+  "agent still running under a wrapper" from "agent exited" from "pane recycled",
+  clearing stale tags as it goes. Rows are dropped when the pane closes, is reused,
+  or the agent has been gone for ~15s. No terminal-output scraping, ever.
 - State lives in a JSON file per tmux server (`~/.local/state/tmux-legion/`); writers
   take a lock and replace it atomically, the sidebar redraws on SIGUSR1 pokes.
 
@@ -118,7 +123,7 @@ tmux-legion toggle | open | close
 
 ## Options (set in tmux.conf)
 
-| Option | Default | |
+| Option | Default | What |
 |---|---|---|
 | `@legion_key` | `g` | toggle key (with prefix) |
 | `@legion_width` | `15%` | sidebar width (percent or columns) |
