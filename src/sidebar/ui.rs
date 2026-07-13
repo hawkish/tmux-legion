@@ -147,16 +147,16 @@ fn render_entries(frame: &mut Frame, app: &mut App, body: Rect) {
                 .add_modifier(Modifier::DIM);
 
             let label = status_label(entry.status);
-            let window = window_label(entry);
+            let location = location_label(entry);
             let mut spans = vec![
                 Span::raw("   "),
                 Span::styled(label, label_style),
                 Span::styled(" · ", dim),
-                Span::styled(window.clone(), dim),
+                Span::styled(location.clone(), dim),
             ];
             if let Some(message) = &entry.message {
                 // Ellipsize the message into whatever width remains.
-                let used = 3 + label.chars().count() + 3 + window.chars().count() + 3;
+                let used = 3 + label.chars().count() + 3 + location.chars().count() + 3;
                 let room = (body.width as usize).saturating_sub(used);
                 if room > 1 {
                     spans.push(Span::styled(" · ", dim));
@@ -225,8 +225,15 @@ fn status_label(status: Status) -> &'static str {
     }
 }
 
-fn window_label(entry: &AgentEntry) -> String {
-    format!("{}:{}", entry.window_index, entry.window_name)
+/// Where the agent runs: its working-directory name. Sibling panes share one
+/// window (whose auto-renamed name tracks the *active* pane), so the window
+/// label is only a fallback for entries without a path.
+fn location_label(entry: &AgentEntry) -> String {
+    std::path::Path::new(&entry.path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}:{}", entry.window_index, entry.window_name))
 }
 
 fn truncate(text: &str, max_width: usize) -> String {
@@ -261,5 +268,20 @@ mod tests {
     fn entry_capacity_per_height() {
         assert_eq!(visible_entries(11), 3);
         assert_eq!(visible_entries(2), 0);
+    }
+
+    #[test]
+    fn location_label_prefers_path_basename() {
+        use crate::status::{Source, Status};
+        let mut entry = AgentEntry::new("%1", "claude", Status::Working, Source::Hook);
+        entry.window_index = 2;
+        entry.window_name = "api".into();
+
+        entry.path = "/Users/u/git/tmux-legion".into();
+        assert_eq!(location_label(&entry), "tmux-legion");
+
+        // No path (pre-upgrade state file entries): fall back to the window.
+        entry.path = String::new();
+        assert_eq!(location_label(&entry), "2:api");
     }
 }

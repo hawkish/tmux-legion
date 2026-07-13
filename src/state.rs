@@ -39,6 +39,9 @@ pub struct AgentEntry {
     pub window_index: u32,
     #[serde(default)]
     pub window_name: String,
+    /// The pane's working directory (for the sidebar's location label).
+    #[serde(default)]
+    pub path: String,
     /// Set when the agent process exited but its pane is still open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exited_at: Option<u64>,
@@ -59,6 +62,7 @@ impl AgentEntry {
             session: String::new(),
             window_index: 0,
             window_name: String::new(),
+            path: String::new(),
             exited_at: None,
         }
     }
@@ -318,6 +322,7 @@ pub fn reconcile(store: &Store) -> Result<()> {
                 entry.session = pane.session.clone();
                 entry.window_index = pane.window_index;
                 entry.window_name = pane.window_name.clone();
+                entry.path = pane.path.clone();
             }
         }
     })?;
@@ -405,6 +410,7 @@ mod tests {
             window_name: "w".into(),
             pane_agent: tag.into(),
             pane_pid: None,
+            path: String::new(),
         }
     }
 

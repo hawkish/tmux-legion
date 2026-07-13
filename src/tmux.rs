@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::process::Command;
 
-const LIST_FORMAT: &str = "#{pane_id}\t#{pane_current_command}\t#{session_name}\t#{window_index}\t#{window_name}\t#{@pane_agent}\t#{pane_pid}";
+const LIST_FORMAT: &str = "#{pane_id}\t#{pane_current_command}\t#{session_name}\t#{window_index}\t#{window_name}\t#{@pane_agent}\t#{pane_pid}\t#{pane_current_path}";
 
 #[derive(Debug, Clone)]
 pub struct Pane {
@@ -12,6 +12,7 @@ pub struct Pane {
     pub window_name: String,
     pub pane_agent: String,
     pub pane_pid: Option<u32>,
+    pub path: String,
 }
 
 pub fn run(args: &[&str]) -> Result<String> {
@@ -83,6 +84,7 @@ fn parse_pane_line(line: &str) -> Option<Pane> {
         window_name: f.next()?.to_string(),
         pane_agent: f.next().unwrap_or("").to_string(),
         pane_pid: f.next().and_then(|s| s.parse().ok()),
+        path: f.next().unwrap_or("").to_string(),
     })
 }
 
@@ -127,7 +129,7 @@ mod tests {
 
     #[test]
     fn parses_pane_line() {
-        let p = parse_pane_line("%5\tclaude\tmain\t2\tapi\tclaude\t12345").unwrap();
+        let p = parse_pane_line("%5\tclaude\tmain\t2\tapi\tclaude\t12345\t/home/u/proj").unwrap();
         assert_eq!(p.pane_id, "%5");
         assert_eq!(p.current_command, "claude");
         assert_eq!(p.session, "main");
@@ -135,6 +137,7 @@ mod tests {
         assert_eq!(p.window_name, "api");
         assert_eq!(p.pane_agent, "claude");
         assert_eq!(p.pane_pid, Some(12345));
+        assert_eq!(p.path, "/home/u/proj");
     }
 
     #[test]
