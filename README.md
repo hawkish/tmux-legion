@@ -64,9 +64,7 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
 ### Nix flake
 
 ```nix
-# Private repo — fetched over SSH (reuses your GitHub SSH key, no token needed).
-# Public mirrors can use github:hawkish/tmux-legion instead.
-inputs.tmux-legion.url = "git+ssh://git@github.com/hawkish/tmux-legion";
+inputs.tmux-legion.url = "github:hawkish/tmux-legion";
 ```
 
 The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmuxPlugin`
@@ -78,7 +76,7 @@ The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmux
 ### Manual / TPM-style
 
 ```bash
-git clone git@github.com:hawkish/tmux-legion ~/.tmux/plugins/tmux-legion
+git clone https://github.com/hawkish/tmux-legion ~/.tmux/plugins/tmux-legion
 cd ~/.tmux/plugins/tmux-legion && cargo build --release
 echo 'run-shell ~/.tmux/plugins/tmux-legion/tmux-legion.tmux' >> ~/.tmux.conf
 ```
