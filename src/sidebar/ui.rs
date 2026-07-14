@@ -14,8 +14,8 @@ use ratatui::Frame;
 
 /// Rows per agent entry: name line + status line + spacer.
 pub const ROWS_PER_ENTRY: u16 = 3;
-/// Header (title) + footer (help) rows.
-pub const CHROME_ROWS: u16 = 2;
+/// Header (title + spacer) + footer (help) rows.
+pub const CHROME_ROWS: u16 = 3;
 
 pub fn visible_entries(area_height: u16) -> usize {
     (area_height.saturating_sub(CHROME_ROWS) / ROWS_PER_ENTRY) as usize
@@ -29,9 +29,10 @@ pub fn render(frame: &mut Frame, app: &mut App) {
 
     render_header(frame, app, Rect::new(area.x, area.y, area.width, 1));
 
+    // Blank spacer row between the header and the first entry.
     let body = Rect::new(
         area.x,
-        area.y + 1,
+        area.y + 2,
         area.width,
         area.height.saturating_sub(CHROME_ROWS),
     );
@@ -266,7 +267,7 @@ mod tests {
 
     #[test]
     fn entry_capacity_per_height() {
-        assert_eq!(visible_entries(11), 3);
+        assert_eq!(visible_entries(12), 3);
         assert_eq!(visible_entries(2), 0);
     }
 
