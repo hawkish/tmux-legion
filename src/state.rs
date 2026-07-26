@@ -19,7 +19,7 @@ const SHELLS: &[&str] = &[
     "sh", "bash", "zsh", "fish", "dash", "ksh", "tcsh", "csh", "nu",
 ];
 
-const DEFAULT_AGENTS: &str = "claude,copilot,codex,opencode,aider";
+const DEFAULT_AGENTS: &str = "claude,copilot,codex,opencode,aider,timtoo";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentEntry {

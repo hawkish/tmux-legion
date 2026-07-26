@@ -126,7 +126,7 @@ tmux-legion toggle | open | close
 | `@legion_key` | `g` | toggle key (with prefix) |
 | `@legion_width` | `15%` | sidebar width (percent or columns) |
 | `@legion_position` | `left` | `left` or `right` |
-| `@legion_agents` | `claude,copilot,codex,opencode,aider` | commands auto-detected as agents |
+| `@legion_agents` | `claude,copilot,codex,opencode,aider,timtoo` | commands auto-detected as agents |
 
 ## Development
 
