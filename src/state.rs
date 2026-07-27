@@ -346,8 +346,7 @@ pub fn reconcile(store: &Store) -> Result<()> {
         .into_iter()
         .filter(|(_, e)| e.source == Source::Detected && e.exited_at.is_none())
         .filter_map(|(pane_id, entry)| {
-            crate::detect::detect_status(&pane_id, &entry.name)
-                .map(|s| (pane_id, s))
+            crate::detect::detect_status(&pane_id, &entry.name).map(|s| (pane_id, s))
         })
         .collect();
 
