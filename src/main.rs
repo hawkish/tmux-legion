@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod detect;
 mod hook;
 mod notify;
 mod process;

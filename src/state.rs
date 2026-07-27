@@ -336,6 +336,35 @@ pub fn reconcile(store: &Store) -> Result<()> {
         let _ = tmux::set_pane_option(&pane_id, "@pane_agent", &name);
     }
 
+    // Screen-content detection for agents without hook support (e.g. copilot).
+    // Capture pane content outside the write lock, then apply the results in a
+    // second mutate. `Source::Detected` entries that are already in the exited
+    // grace period are skipped (the pane is showing a shell, not the agent).
+    let detections: Vec<(String, Status)> = store
+        .load()
+        .agents
+        .into_iter()
+        .filter(|(_, e)| e.source == Source::Detected && e.exited_at.is_none())
+        .filter_map(|(pane_id, entry)| {
+            crate::detect::detect_status(&pane_id, &entry.name)
+                .map(|s| (pane_id, s))
+        })
+        .collect();
+
+    if !detections.is_empty() {
+        store.mutate(|state| {
+            for (pane_id, status) in &detections {
+                if let Some(entry) = state.agents.get_mut(pane_id) {
+                    // Re-check source: a hook might have fired between our
+                    // load and this mutate; never overwrite hook/reported status.
+                    if entry.source == Source::Detected && entry.exited_at.is_none() {
+                        entry.set_status(*status, None, Source::Detected);
+                    }
+                }
+            }
+        })?;
+    }
+
     Ok(())
 }
 
