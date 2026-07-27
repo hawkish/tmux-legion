@@ -250,6 +250,9 @@ pub fn reconcile(store: &Store) -> Result<()> {
 
     let mut panes_to_clear: Vec<String> = Vec::new();
     let mut panes_to_tag: Vec<(String, String)> = Vec::new();
+    // Agents eligible for screen-content detection, collected while we hold the
+    // lock so the detection phase below doesn't re-read the state file.
+    let mut detect_targets: Vec<(String, String)> = Vec::new();
 
     store.mutate(|state| {
         // Remove entries whose pane is gone or recycled, or whose agent
@@ -325,6 +328,15 @@ pub fn reconcile(store: &Store) -> Result<()> {
                 entry.path = pane.path.clone();
             }
         }
+
+        // Snapshot the detection-eligible agents (no hook/report source, agent
+        // still alive) before releasing the lock.
+        detect_targets = state
+            .agents
+            .iter()
+            .filter(|(_, e)| e.source == Source::Detected && e.exited_at.is_none())
+            .map(|(pane_id, e)| (pane_id.clone(), e.name.clone()))
+            .collect();
     })?;
 
     // Tmux calls happen outside the state lock so they don't block the write
@@ -338,15 +350,12 @@ pub fn reconcile(store: &Store) -> Result<()> {
 
     // Screen-content detection for agents without hook support (e.g. copilot).
     // Capture pane content outside the write lock, then apply the results in a
-    // second mutate. `Source::Detected` entries that are already in the exited
-    // grace period are skipped (the pane is showing a shell, not the agent).
-    let detections: Vec<(String, Status)> = store
-        .load()
-        .agents
+    // second mutate. Targets were snapshotted during the reconcile mutate above
+    // (Detected source, agent still alive), so no extra state read is needed.
+    let detections: Vec<(String, Status)> = detect_targets
         .into_iter()
-        .filter(|(_, e)| e.source == Source::Detected && e.exited_at.is_none())
-        .filter_map(|(pane_id, entry)| {
-            crate::detect::detect_status(&pane_id, &entry.name).map(|s| (pane_id, s))
+        .filter_map(|(pane_id, name)| {
+            crate::detect::detect_status(&pane_id, &name).map(|s| (pane_id, s))
         })
         .collect();
 
