@@ -46,6 +46,25 @@ Options: `--direction right|down|left|up` (default right), `--window` for a new
 window instead of a split, `--cwd <path>`, `--focus` to move focus to the new pane.
 The `--` before the command is required.
 
+### Agent-specific invocation
+
+Different agents require different CLI invocations — always use the right one:
+
+| Agent | Command | Notes |
+|-------|---------|-------|
+| Claude Code | `claude -p "<prompt>"` | Non-interactive; exits when done |
+| GitHub Copilot CLI | `gh copilot` | **No prompt arg** — always launch interactively. Passing a prompt causes an immediate exit due to the folder-trust dialog. |
+
+**Copilot CLI** (interactive — user sees trust dialog and can then chat):
+```bash
+PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- gh copilot)
+```
+
+**Claude Code** (non-interactive — exits when task is complete):
+```bash
+PANE=$(tmux-legion spawn --name claude -- claude -p "review the diff in $(pwd)")
+```
+
 ## Observe and synchronize
 
 ```bash
