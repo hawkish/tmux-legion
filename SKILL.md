@@ -53,11 +53,11 @@ Different agents require different CLI invocations — always use the right one:
 | Agent | Command | Notes |
 |-------|---------|-------|
 | Claude Code | `claude -p "<prompt>"` | Non-interactive; exits when done |
-| GitHub Copilot CLI | `gh copilot` | **No prompt arg** — always launch interactively. Passing a prompt causes an immediate exit due to the folder-trust dialog. |
+| GitHub Copilot CLI | `copilot` | **No prompt arg** — always launch interactively. Passing a prompt causes an immediate exit due to the folder-trust dialog. |
 
 **Copilot CLI** (interactive — user sees trust dialog and can then chat):
 ```bash
-PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- gh copilot)
+PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot)
 ```
 
 **Claude Code** (non-interactive — exits when task is complete):
