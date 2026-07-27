@@ -54,10 +54,16 @@ Different agents require different CLI invocations — always use the right one:
 |-------|---------|-------|
 | Claude Code | `claude -p "<prompt>"` | Non-interactive; exits when done |
 | GitHub Copilot CLI | `copilot` | **No prompt arg** — always launch interactively. Passing a prompt causes an immediate exit due to the folder-trust dialog. |
+| GitHub Copilot CLI (autopilot) | `copilot --model gpt-5.4 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt>"` | Non-interactive autopilot mode; alias `autop "<prompt>"` |
 
 **Copilot CLI** (interactive — user sees trust dialog and can then chat):
 ```bash
 PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot)
+```
+
+**Copilot CLI autopilot** (`autop`) — non-interactive, runs any prompt/skill and exits:
+```bash
+PANE=$(tmux-legion spawn --name my-task --focus --cwd "$(pwd)" -- copilot --model gpt-5.4 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt or /skill>")
 ```
 
 **Claude Code** (non-interactive — exits when task is complete):
