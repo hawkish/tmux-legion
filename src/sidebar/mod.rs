@@ -81,9 +81,12 @@ fn event_loop(
         }
 
         ticks = ticks.wrapping_add(1);
-        if redraw.swap(false, Ordering::Relaxed) {
-            app.reload(store);
-        } else if ticks.is_multiple_of(RECONCILE_TICKS) {
+        // A poke or the periodic tick both reconcile: pokes from the
+        // pane-exited/session-closed hooks have no state-file write behind them,
+        // so a bare reload would keep showing an agent whose pane just closed.
+        // The atomic flag coalesces poke bursts to one reconcile per poll window,
+        // and reconcile preserves Hook/Reported status, so this stays cheap.
+        if redraw.swap(false, Ordering::Relaxed) || ticks.is_multiple_of(RECONCILE_TICKS) {
             let _ = state::reconcile(store);
             app.reload(store);
         }
