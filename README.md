@@ -1,5 +1,8 @@
 # tmux-legion
 
+[![Release](https://img.shields.io/github/v/release/hawkish/tmux-legion?sort=semver)](https://github.com/hawkish/tmux-legion/releases/latest)
+[![License](https://img.shields.io/github/license/hawkish/tmux-legion)](LICENSE)
+
 A tmux sidebar that tracks every AI agent in your session: **blocked**, **working**,
 **done**. Hooks drive the status where the agent supports them; process-tree
 discovery finds the rest — including node-wrapped CLIs — with zero configuration.
@@ -44,7 +47,10 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
 - **pi** ([pi.dev](https://pi.dev)) reports via a bundled extension on its lifecycle
   events (see [Pi extension](#pi-extension) below) — pi has no shell-hook system, so
   the extension is what supplies its status.
-- **Any other agent** (Copilot CLI, codex, aider, ...) reports its own status with
+- **Copilot CLI** has no hooks, so the reconciler reads its status from the pane's
+  visible screen: an "esc to cancel" hint ⇒ working, a selection/confirm prompt
+  ("enter to select") ⇒ blocked, neither ⇒ idle (mirrors herdr's `github-copilot.toml`).
+- **Any other agent** (codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
 - A reconciler (every ~2s) **discovers** agents three ways: the foreground command
   matches `@legion_agents`, the pane carries a `@pane_agent` tag (set by hooks or
@@ -55,7 +61,8 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
   foreground command, it walks the process tree (`ps`) from the pane's PID to tell
   "agent still running under a wrapper" from "agent exited" from "pane recycled",
   clearing stale tags as it goes. Rows are dropped when the pane closes, is reused,
-  or the agent has been gone for ~15s. No terminal-output scraping, ever.
+  or the agent has been gone for ~15s. Screen content is only ever read for agents
+  that need it (Copilot) — hook-driven agents are never scraped.
 - State lives in a JSON file per tmux server (`~/.local/state/tmux-legion/`); writers
   take a lock and replace it atomically, the sidebar redraws on SIGUSR1 pokes.
 
@@ -64,7 +71,8 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
 ### Nix flake
 
 ```nix
-inputs.tmux-legion.url = "github:hawkish/tmux-legion";
+# Pin to a release tag (recommended); drop the ref to track the default branch.
+inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.3.0";
 ```
 
 The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmuxPlugin`
