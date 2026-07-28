@@ -11,19 +11,7 @@ Inspired by [tmux-agent-sidebar](https://github.com/hiroppy/tmux-agent-sidebar) 
 mechanics, Claude Code hooks) and [herdr](https://github.com/ogulcancelik/herdr)
 (explicit status reporting, agent skill, panel styling). Single Rust binary, no daemon.
 
-```
-┌────────────────────┬─────────────────────────┐
-│ agents      ● 1 / 3│  $ claude               │
-│ ⠹ claude           │  > refactoring auth...  │
-│   working · api    │                         │
-│ ◉ copilot          │                         │
-│   blocked · docs   │                         │
-│ ● reviewer         │                         │
-│   done · infra     │                         │
-│                    │                         │
-│ j/k ↵ jump x kill q│                         │
-└────────────────────┴─────────────────────────┘
-```
+![tmux-legion sidebar tracking a blocked Claude Code pane and an idle Copilot pane](screen.png)
 
 Each agent is a two-line row — a status glyph + name, then `status · directory ·
 message`, where the directory is the pane's working directory (so agents split
