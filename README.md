@@ -49,7 +49,7 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
   the extension is what supplies its status.
 - **Copilot CLI** has no hooks, so the reconciler reads its status from the pane's
   visible screen: an "esc to cancel" hint ⇒ working, a selection/confirm prompt
-  ("enter to select") ⇒ blocked, neither ⇒ idle (mirrors herdr's `github-copilot.toml`).
+  ("enter to select") ⇒ blocked, neither ⇒ idle.
 - **Any other agent** (codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
 - A reconciler (every ~2s) **discovers** agents three ways: the foreground command

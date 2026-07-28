@@ -18,7 +18,7 @@ pub fn detect_from_content(agent_name: &str, content: &str) -> Option<Status> {
     }
 }
 
-/// Mirrors the rules in herdr's `github-copilot.toml`:
+/// Detection rules, by priority:
 ///
 /// - **blocked** (priority 300): ESC-cancel hint AND ENTER-accept hint visible
 ///   → Copilot is showing an interactive selection waiting for user input.
