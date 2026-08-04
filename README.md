@@ -40,9 +40,6 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
   ("enter to select") ⇒ blocked, neither ⇒ idle.
 - **Any other agent** (codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
-  Copilot CLI can be launched interactively (`copilot --model claude-sonnet-4.6 -i`)
-  or in autopilot mode with a prompt (`copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt>"`);
-  see SKILL.md for full spawn examples.
 - A reconciler (every ~2s) **discovers** agents three ways: the foreground command
   matches `@legion_agents`, the pane carries a `@pane_agent` tag (set by hooks or
   `spawn`), or — when the foreground command is an interpreter (node, bun, deno) —
@@ -117,6 +114,50 @@ tmux-legion spawn [--name n] [--direction right|down|left|up] [--window] [--cwd 
 tmux-legion wait [--pane %id] --status <s> [--timeout secs]    # exit 0 ok, 2 timeout, 3 pane gone
 tmux-legion toggle | open | close
 ```
+
+### Spawning agents
+
+`spawn` splits a pane, runs the command in it, tags it, and prints the new pane id.
+Whether that pane sticks around is entirely up to the command — an agent in
+interactive mode keeps the pane; a headless run prints its answer and exits, which
+closes the pane. The two CLIs spell that distinction in opposite ways:
+
+| Agent | Mode | Command |
+|---|---|---|
+| Claude Code | interactive | `claude` |
+| Claude Code | interactive, prompt seeded | `claude "<prompt or /skill>"` |
+| Claude Code | headless | `claude -p "<prompt>"` |
+| Copilot CLI | interactive | `copilot` (optionally `--model <m> -i`) |
+| Copilot CLI | headless (autopilot) | `copilot --autopilot --allow-all -p "<prompt>"` |
+
+Claude Code is interactive **by default** and takes its prompt as a *positional*
+argument; `-p` is what makes it headless. Copilot is the mirror image: `-i` for
+interactive, `-p` for autopilot (and it must not get a prompt in interactive mode —
+the folder-trust dialog makes it exit immediately).
+
+```bash
+# Interactive Claude in a right-hand split, focused, running a slash command.
+# The pane stays open — you can keep chatting after /git-message finishes.
+tmux-legion spawn --name committer --focus --cwd "$(pwd)" -- claude "/git-message"
+
+# Interactive Copilot on a specific model.
+tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --model claude-sonnet-4.6 -i
+
+# Headless review. remain-on-exit keeps the pane after `-p` exits, so there is still
+# something to scrape; without it `wait` returns 3 (pane gone) and the output is lost.
+tmux set -g remain-on-exit on
+PANE=$(tmux-legion spawn --name reviewer --cwd "$(pwd)" -- claude -p "review the diff in $(pwd)")
+tmux-legion wait --pane "$PANE" --status done --timeout 600
+tmux capture-pane -p -t "$PANE"
+
+# Headless Copilot autopilot, same shape.
+tmux-legion spawn --name autop --cwd "$(pwd)" -- \
+  copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "review the diff in $(pwd)"
+```
+
+If a spawned pane vanishes instantly, the command exited — a headless run that
+finished or errored before you could read it. `tmux set -g remain-on-exit on` keeps
+the pane around so you can see why.
 
 ## Options (set in tmux.conf)
 

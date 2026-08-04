@@ -52,6 +52,8 @@ Different agents require different CLI invocations — always use the right one:
 
 | Agent | Mode | Command |
 |-------|------|---------|
+| Claude Code | interactive | `claude` |
+| Claude Code | interactive with a seeded prompt | `claude "<prompt or /skill>"` |
 | Claude Code | non-interactive | `claude -p "<prompt>"` |
 | Copilot CLI | interactive | `copilot` |
 | Copilot CLI | interactive with model | `copilot --model claude-sonnet-4.6 -i` |
@@ -67,10 +69,24 @@ PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --mode
 PANE=$(tmux-legion spawn --name my-task --cwd "$(pwd)" -- copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "review the diff in $(pwd)")
 ```
 
-**Claude Code** (non-interactive — exits when task is complete):
+**Claude Code interactive** — unlike copilot, the prompt is a *positional* argument, not
+`-p`. The session stays open so the user can keep chatting, and slash commands work:
 ```bash
-PANE=$(tmux-legion spawn --name claude -- claude -p "review the diff in $(pwd)")
+PANE=$(tmux-legion spawn --name committer --focus --cwd "$(pwd)" -- claude "/git-message")
 ```
+
+**Claude Code non-interactive** (`-p`) — prints the result and exits, which closes the
+pane. Set `remain-on-exit` first if you want to read what it said:
+```bash
+tmux set -g remain-on-exit on
+PANE=$(tmux-legion spawn --name reviewer -- claude -p "review the diff in $(pwd)")
+tmux-legion wait --pane "$PANE" --status done --timeout 600
+tmux capture-pane -p -t "$PANE"
+```
+
+> If a spawned pane vanishes instantly, the command exited (a `-p`/`--autopilot` run
+> that finished or errored). `remain-on-exit` keeps the pane around so you can read
+> the error.
 
 ## Observe and synchronize
 
