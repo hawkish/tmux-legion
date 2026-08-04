@@ -55,13 +55,21 @@ Different agents require different CLI invocations — always use the right one:
 | Claude Code | interactive | `claude` |
 | Claude Code | interactive with a seeded prompt | `claude "<prompt or /skill>"` |
 | Claude Code | non-interactive | `claude -p "<prompt>"` |
-| Copilot CLI | interactive | `copilot` |
-| Copilot CLI | interactive with model | `copilot --model claude-sonnet-4.6 -i` |
+| Copilot CLI | interactive | `copilot --model claude-sonnet-4.6` |
+| Copilot CLI | interactive with a seeded prompt | `copilot --model claude-sonnet-4.6 -i "<prompt>"` |
 | Copilot CLI | autopilot with prompt | `copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt>"` |
 
 **Copilot CLI interactive** (user sees trust dialog and can then chat — do not pass `-p`):
 ```bash
-PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --model claude-sonnet-4.6 -i)
+PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --model claude-sonnet-4.6)
+```
+
+**Copilot CLI interactive with a seeded prompt** — `-i, --interactive <prompt>` *requires*
+a prompt argument; it starts interactive mode and auto-submits that prompt, so the session
+stays open afterwards. A bare `-i` with no argument makes copilot exit immediately and the
+pane dies:
+```bash
+PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --model claude-sonnet-4.6 -i "review the diff in $(pwd)")
 ```
 
 **Copilot CLI autopilot with prompt** — non-interactive, runs a task and exits:
@@ -69,8 +77,9 @@ PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --mode
 PANE=$(tmux-legion spawn --name my-task --cwd "$(pwd)" -- copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "review the diff in $(pwd)")
 ```
 
-**Claude Code interactive** — unlike copilot, the prompt is a *positional* argument, not
-`-p`. The session stays open so the user can keep chatting, and slash commands work:
+**Claude Code interactive** — the seeded prompt is a *positional* argument (copilot uses
+`-i` for the same thing). The session stays open so the user can keep chatting, and slash
+commands work:
 ```bash
 PANE=$(tmux-legion spawn --name committer --focus --cwd "$(pwd)" -- claude "/git-message")
 ```
