@@ -40,6 +40,9 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
   ("enter to select") ⇒ blocked, neither ⇒ idle.
 - **Any other agent** (codex, aider, ...) reports its own status with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
+  Copilot CLI can be launched interactively (`copilot --model claude-sonnet-4.6 -i`)
+  or in autopilot mode with a prompt (`copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt>"`);
+  see SKILL.md for full spawn examples.
 - A reconciler (every ~2s) **discovers** agents three ways: the foreground command
   matches `@legion_agents`, the pane carries a `@pane_agent` tag (set by hooks or
   `spawn`), or — when the foreground command is an interpreter (node, bun, deno) —

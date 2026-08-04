@@ -50,20 +50,21 @@ The `--` before the command is required.
 
 Different agents require different CLI invocations — always use the right one:
 
-| Agent | Command | Notes |
-|-------|---------|-------|
-| Claude Code | `claude -p "<prompt>"` | Non-interactive; exits when done |
-| GitHub Copilot CLI | `copilot` | **No prompt arg** — always launch interactively. Passing a prompt causes an immediate exit due to the folder-trust dialog. |
-| GitHub Copilot CLI (autopilot) | `copilot --model gpt-5.4 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt>"` | Non-interactive autopilot mode; alias `autop "<prompt>"` |
+| Agent | Mode | Command |
+|-------|------|---------|
+| Claude Code | non-interactive | `claude -p "<prompt>"` |
+| Copilot CLI | interactive | `copilot` |
+| Copilot CLI | interactive with model | `copilot --model claude-sonnet-4.6 -i` |
+| Copilot CLI | autopilot with prompt | `copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt>"` |
 
-**Copilot CLI** (interactive — user sees trust dialog and can then chat):
+**Copilot CLI interactive** (user sees trust dialog and can then chat — do not pass `-p`):
 ```bash
-PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot)
+PANE=$(tmux-legion spawn --name copilot --focus --cwd "$(pwd)" -- copilot --model claude-sonnet-4.6 -i)
 ```
 
-**Copilot CLI autopilot** (`autop`) — non-interactive, runs any prompt/skill and exits:
+**Copilot CLI autopilot with prompt** — non-interactive, runs a task and exits:
 ```bash
-PANE=$(tmux-legion spawn --name my-task --focus --cwd "$(pwd)" -- copilot --model gpt-5.4 --autopilot --allow-all --max-autopilot-continues 10 -p "<prompt or /skill>")
+PANE=$(tmux-legion spawn --name my-task --cwd "$(pwd)" -- copilot --model gpt-5.5 --autopilot --allow-all --max-autopilot-continues 10 -p "review the diff in $(pwd)")
 ```
 
 **Claude Code** (non-interactive — exits when task is complete):
