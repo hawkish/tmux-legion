@@ -185,7 +185,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
         )),
         None => Line::from(Span::styled(
-            " j/k ↵ jump  x kill  q quit",
+            " -/+ ↵ jump  x kill  q quit",
             Style::default()
                 .fg(theme::OVERLAY0)
                 .add_modifier(Modifier::DIM),

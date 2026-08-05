@@ -51,7 +51,7 @@ impl App {
         // Follow tmux focus: when the user switches to a tracked agent's
         // pane, move the highlight there. Focus on the sidebar itself or on
         // a non-agent pane matches no entry and leaves the selection alone,
-        // so j/k navigation inside the sidebar is never fought.
+        // so -/+ navigation inside the sidebar is never fought.
         if let Some(focused) = tmux::focused_pane() {
             if let Some(idx) = self.entries.iter().position(|e| e.pane_id == focused) {
                 self.selected = idx;
@@ -86,7 +86,7 @@ impl App {
     }
 
     /// Left-click an entry: move the highlight there and focus that agent's
-    /// pane (same as j/k + Enter). The wheel moves the highlight like j/k —
+    /// pane (same as -/+ + Enter). The wheel moves the highlight like -/+ —
     /// the view scrolls with it, since scroll always follows the selection.
     /// `term_height` locates the footer row so header/footer clicks are ignored.
     pub fn handle_mouse(&mut self, mouse: MouseEvent, term_height: u16) -> Outcome {
@@ -122,11 +122,11 @@ impl App {
 
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => Outcome::Quit,
-            KeyCode::Char('j') | KeyCode::Down => {
+            KeyCode::Char('+') | KeyCode::Char('=') | KeyCode::Down => {
                 self.select_next();
                 Outcome::Continue
             }
-            KeyCode::Char('k') | KeyCode::Up => {
+            KeyCode::Char('-') | KeyCode::Up => {
                 self.select_prev();
                 Outcome::Continue
             }
