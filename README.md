@@ -183,6 +183,10 @@ Setup, once:
   tmux-legion cannot open it while Launcher is connected.
 - On macOS you may need to grant your terminal **Input Monitoring** under System Settings →
   Privacy & Security.
+- On Linux `/dev/hidraw*` is root-only by default, so the LEDs stay dark until a udev rule
+  grants access. On NixOS, `hardware.keyboard.qmk.enable = true`, or explicitly:
+  `KERNEL=="hidraw*", ATTRS{idVendor}=="3434", MODE="0660", TAG+="uaccess"`. Without it
+  everything else still works — the sidebar treats it as "no keyboard attached".
 
 #### Getting the remapped keys to actually arrive
 
