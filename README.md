@@ -69,6 +69,20 @@ The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmux
 `nix flake update tmux-legion`; develop locally with
 `--override-input tmux-legion /path/to/checkout`.
 
+### After upgrading
+
+A rebuild is not enough. A running tmux server keeps the options it read at
+startup, so `@legion_bin` still points at the previous store path and the
+sidebar pane is still the process launched from it — you get the old binary with
+no error anywhere, which looks like the new features silently not working.
+
+```bash
+tmux source-file ~/.config/tmux/tmux.conf   # re-runs the plugin entry script
+tmux kill-pane -t "$(tmux show-option -gqv @legion_pane)"  # then reopen: prefix + g
+```
+
+`tmux kill-server` does the same thing more bluntly.
+
 ### Manual / TPM-style
 
 ```bash
