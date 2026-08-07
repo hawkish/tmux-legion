@@ -176,15 +176,38 @@ Setup, once:
 
 - **Wire the keyboard up by USB.** The raw-HID interface it needs is not exposed over
   Bluetooth or the 2.4 GHz dongle.
-- **Remap the three keys in Keychron Launcher** to `F14`, `F15` and `F16` so pressing them
-  can mean "focus that agent" instead of typing a digit. tmux has no `F13`+ key names — it
-  follows xterm, where those are `S-F2`/`S-F3`/`S-F4`, which is what the default binding
-  uses. To skip the remap, bind something else instead:
-  `set -g @legion_slot_keys 'M-4,M-5,M-6'`.
+- **Remap the three keys in Keychron Launcher** so pressing one can mean "focus that agent"
+  instead of typing a digit. `F17`, `F18` and `F19` are the safe choices — see below. To
+  skip the remap entirely, bind something else: `set -g @legion_slot_keys 'M-4,M-5,M-6'`.
 - **Quit Keychron Launcher** when you're done. It holds the keyboard exclusively, so
   tmux-legion cannot open it while Launcher is connected.
 - On macOS you may need to grant your terminal **Input Monitoring** under System Settings →
   Privacy & Security.
+
+#### Getting the remapped keys to actually arrive
+
+Two things sit between the keyboard and tmux, and both bite.
+
+**macOS eats some F-keys.** `F13` is Print Screen and `F14`/`F15` are display brightness —
+they never reach the terminal at all, whatever the keyboard sends. Use `F17`–`F19`.
+
+**Modern terminals encode them as CSI-u, which tmux does not name.** A terminal speaking the
+Kitty keyboard protocol sends `F17` as `ESC [ 57380 u`; tmux has no key name for that, so the
+key arrives as literal text and no binding matches. `S-F5` (tmux's xterm-era name for `F17`)
+only works if your terminal sends the legacy sequence. Bind the raw sequence with `user-keys`
+instead:
+
+```tmux
+# F17, F18, F19 in the Kitty keyboard protocol
+set -s user-keys[0] "\033[57380u"
+set -s user-keys[1] "\033[57381u"
+set -s user-keys[2] "\033[57382u"
+set -g @legion_slot_keys 'User0,User1,User2'
+```
+
+The codes are `57376 + (n - 13)` for `Fn`, so `F13` is `57376` and `F19` is `57382`. To check
+what your terminal actually sends, run `cat -v` and press the key: `^[[57380u` means the
+above applies, plain `^[[31~` means the `S-F5` naming works and you can skip `user-keys`.
 
 The LEDs are driven by the sidebar, so they are live only while the sidebar pane is open;
 closing it drops the three keys back to the floor. Everything degrades quietly — with no
