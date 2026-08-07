@@ -42,6 +42,12 @@ pub enum Command {
         #[arg(long)]
         pane: Option<String>,
     },
+    /// Focus the agent on a keyboard slot (internal: called from key bindings)
+    Focus {
+        /// Slot number, counting from the first LED key
+        #[arg(long)]
+        slot: u8,
+    },
     /// List tracked agents
     List {
         /// Output JSON instead of a table

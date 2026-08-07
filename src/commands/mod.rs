@@ -1,3 +1,4 @@
+pub mod focus;
 pub mod hook;
 pub mod list;
 pub mod report;

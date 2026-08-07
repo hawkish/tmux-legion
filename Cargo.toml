@@ -15,6 +15,19 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 signal-hook = "0.3"
 
+# Keyboard LEDs. The raw-HID interface is selected by usage page, so we need a
+# backend that reports it: hidapi's default linux-static-hidraw leaves
+# usage_page at 0 (and wants libudev headers), while the native backend parses
+# report descriptors itself. basic-udev keeps it pure Rust, so `cargo install`
+# needs no system libraries.
+[target.'cfg(target_os = "linux")'.dependencies]
+hidapi = { version = "2", default-features = false, features = [
+  "linux-native-basic-udev",
+] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+hidapi = "2"
+
 [profile.release]
 strip = true
 lto = true

@@ -104,6 +104,8 @@ reports idle/working/done on pi's lifecycle events.
 `g`/`G` jump to top/bottom, `Enter` focuses the selected agent's pane, `x` kills it
 (confirm with `y`), `r` forces a rescan, `q` closes. Clicking a row selects it and
 focuses that pane too, and the highlight follows whichever agent pane you focus in tmux.
+Entries that hold a keyboard slot show the key that jumps to them (see
+[Keyboard LEDs](#keyboard-leds)).
 
 ### CLI
 
@@ -112,8 +114,85 @@ tmux-legion report <working|blocked|done|idle|unknown> [-m msg] [--name n] [--pa
 tmux-legion list [--json]
 tmux-legion spawn [--name n] [--direction right|down|left|up] [--window] [--cwd p] [--focus] -- <cmd...>
 tmux-legion wait [--pane %id] --status <s> [--timeout secs]    # exit 0 ok, 2 timeout, 3 pane gone
+tmux-legion focus --slot <n>                                   # jump to the agent on keyboard slot n
 tmux-legion toggle | open | close
 ```
+
+### Keyboard LEDs
+
+On a Keychron Q0 Max the first three agents are mirrored onto the numpad `4`, `5` and `6`
+keys: the key lights up in the agent's status colour, and pressing it jumps to that agent's
+pane. The sidebar shows which key belongs to which agent next to its name.
+
+| status | key colour |
+|---|---|
+| blocked | red |
+| working | amber |
+| done | teal |
+| idle | green |
+| unknown | violet |
+| no agent | blue (the floor) |
+
+**tmux-legion takes over the keyboard's lighting while the sidebar is open.** It
+switches to a per-key effect, sets the global brightness, and floors every key
+that isn't a slot to one quiet colour, so the agent keys are the only ones that
+differ.
+
+Note what this cannot do: **a key cannot be individually darkened.** The
+firmware ignores a per-key write whose saturation or value is zero (the key
+simply keeps what it had), and treats any non-zero value as "on" rather than as
+a level — so brightness is global, and every lit key is equally bright. Unused
+keys are therefore a different *colour*, not dark. Switching the backlight off
+does darken the board, but then nothing renders at all, agent keys included.
+
+Two consequences worth knowing before you enable this:
+
+- **Your stored per-key colours are overwritten and cannot be restored by
+  tmux-legion** — the protocol offers no way to read them first. Re-apply your
+  profile from Keychron Launcher if you want them back.
+- **The lighting stays as tmux-legion left it after the sidebar closes**, for
+  the same reason: there is nothing meaningful to restore it to. The slot keys
+  drop back to the floor so no stale status is left showing.
+
+The backlight level is left alone unless you set `@legion_led_brightness` — it
+is global, so it is your only dimming control and the one the keyboard's own
+keys adjust. Set `@legion_led_effect keep` to leave the effect alone too.
+
+`set -g @legion_led_floor keep` skips the floor entirely: tmux-legion writes
+nothing but the agent keys, and an empty slot hands its key back to whatever
+your own profile stores. That is the better arrangement *if* your keyboard can
+store a dark colour per key.
+
+A Q0 Max cannot, as far as we could establish. Setting a key to `000000` in
+Launcher's per-key editor renders it white, not black — a zero colour reads as
+"no override" there too. The effect list's "none" entry does darken the board,
+but that is the backlight switch: with it off, nothing renders at all, agent
+keys included. So on this hardware the floor is the practical choice.
+
+Slots are sticky: an agent keeps its key until its pane goes away, and a freed key is
+handed to the oldest agent that hasn't got one. Agents past the third get no key.
+
+Setup, once:
+
+- **Wire the keyboard up by USB.** The raw-HID interface it needs is not exposed over
+  Bluetooth or the 2.4 GHz dongle.
+- **Remap the three keys in Keychron Launcher** to `F14`, `F15` and `F16` so pressing them
+  can mean "focus that agent" instead of typing a digit. tmux has no `F13`+ key names — it
+  follows xterm, where those are `S-F2`/`S-F3`/`S-F4`, which is what the default binding
+  uses. To skip the remap, bind something else instead:
+  `set -g @legion_slot_keys 'M-4,M-5,M-6'`.
+- **Quit Keychron Launcher** when you're done. It holds the keyboard exclusively, so
+  tmux-legion cannot open it while Launcher is connected.
+- On macOS you may need to grant your terminal **Input Monitoring** under System Settings →
+  Privacy & Security.
+
+The LEDs are driven by the sidebar, so they are live only while the sidebar pane is open;
+closing it drops the three keys back to the floor. Everything degrades quietly — with no
+keyboard attached, or on Bluetooth, the sidebar behaves exactly as before. If a keyboard was
+found and then stopped responding, a red `⌨` appears in the sidebar footer.
+
+`@legion_led_effect` defaults to the per-key effect measured on a Q0 Max. If your firmware
+numbers effects differently, set it to the right id (decimal or `0x`-prefixed).
 
 ### Spawning agents
 
@@ -167,6 +246,10 @@ the pane around so you can see why.
 | `@legion_width` | `15%` | sidebar width (percent or columns) |
 | `@legion_position` | `left` | `left` or `right` |
 | `@legion_agents` | `claude,copilot,codex,opencode,aider,timtoo` | commands auto-detected as agents |
+| `@legion_slot_keys` | `S-F2,S-F3,S-F4` | keys that jump to slots 1-3 (no prefix); empty to disable |
+| `@legion_led_effect` | `23` | keyboard lighting effect to switch to, or `keep` to leave it alone |
+| `@legion_led_brightness` | unset | force the global backlight to this level; unset leaves it alone |
+| `@legion_led_floor` | on | `keep` skips the floor, leaving your own per-key colours in place |
 
 ## Development
 

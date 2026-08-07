@@ -1,3 +1,4 @@
+use crate::keyboard;
 use crate::tmux;
 use anyhow::{Context, Result};
 
@@ -5,6 +6,7 @@ pub fn toggle() -> Result<()> {
     match live_sidebar_pane() {
         Some(pane) => {
             tmux::kill_pane(&pane)?;
+            keyboard::cleanup();
             Ok(())
         }
         None => open(),
@@ -36,6 +38,7 @@ pub fn open() -> Result<()> {
 pub fn close() -> Result<()> {
     if let Some(pane) = live_sidebar_pane() {
         tmux::kill_pane(&pane)?;
+        keyboard::cleanup();
     }
     Ok(())
 }

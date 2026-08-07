@@ -20,6 +20,10 @@ pub struct App {
     pub spinner_tick: u32,
     /// Pane id awaiting kill confirmation (`x` pressed, y/n pending).
     pub confirm_kill: Option<String>,
+    /// Set when the keyboard was found and then stopped working. The keyboard
+    /// module cannot print, so this footer marker is the only way the user
+    /// learns their LEDs went stale.
+    pub led_warning: bool,
 }
 
 impl App {
@@ -30,6 +34,7 @@ impl App {
             scroll: 0,
             spinner_tick: 0,
             confirm_kill: None,
+            led_warning: false,
         }
     }
 
@@ -149,8 +154,21 @@ impl App {
                 Outcome::Continue
             }
             KeyCode::Char('r') => Outcome::Reconcile,
+            // Slot keys. The numpad 4/5/6 keys are remapped to F14-F16 in
+            // firmware, and a root-table tmux binding normally swallows those
+            // before they reach us — this is the fallback for terminals that
+            // drop F13+, plus the top-row digits.
+            KeyCode::F(n @ 14..=16) => self.focus_slot(n - 13),
+            KeyCode::Char(c @ '4'..='6') => self.focus_slot(c as u8 - b'3'),
             _ => Outcome::Continue,
         }
+    }
+
+    fn focus_slot(&self, slot: u8) -> Outcome {
+        if let Some(entry) = self.entries.iter().find(|e| e.slot == Some(slot)) {
+            let _ = tmux::select_pane(&entry.pane_id);
+        }
+        Outcome::Continue
     }
 }
 

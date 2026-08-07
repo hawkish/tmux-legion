@@ -4,6 +4,7 @@
 //! exactly the two content lines, like herdr's active-pane highlight.
 use super::app::App;
 use super::theme;
+use crate::keyboard;
 use crate::state::AgentEntry;
 use crate::status::Status;
 use ratatui::layout::Rect;
@@ -125,15 +126,32 @@ fn render_entries(frame: &mut Frame, app: &mut App, body: Rect) {
                 .fg(theme::SUBTEXT0)
                 .add_modifier(Modifier::BOLD)
         };
-        let name = truncate(&entry.name, body.width.saturating_sub(3) as usize);
+        // The keyboard key that jumps here, labelled by what the user presses
+        // rather than by slot number. Without it, slots silently migrating
+        // between agents would make the LEDs look arbitrary.
+        let key = entry
+            .slot
+            .and_then(|s| (s as usize).checked_sub(1))
+            .and_then(|i| keyboard::SLOT_KEYS.get(i))
+            .copied();
+        let reserved = if key.is_some() { 5 } else { 3 };
+        let name = truncate(&entry.name, body.width.saturating_sub(reserved) as usize);
+        let mut name_spans = vec![
+            Span::raw(" "),
+            Span::styled(icon, Style::default().fg(icon_color)),
+            Span::raw(" "),
+            Span::styled(name, name_style),
+        ];
+        if let Some(key) = key {
+            name_spans.push(Span::styled(
+                format!(" {key}"),
+                Style::default()
+                    .fg(theme::OVERLAY0)
+                    .add_modifier(Modifier::DIM),
+            ));
+        }
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::raw(" "),
-                Span::styled(icon, Style::default().fg(icon_color)),
-                Span::raw(" "),
-                Span::styled(name, name_style),
-            ]))
-            .style(row_style),
+            Paragraph::new(Line::from(name_spans)).style(row_style),
             Rect::new(body.x, row_y, body.width, 1),
         );
         row_y += 1;
@@ -184,12 +202,18 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             format!(" kill {pane}? y/n"),
             Style::default().fg(theme::RED).add_modifier(Modifier::BOLD),
         )),
-        None => Line::from(Span::styled(
-            " -/+ ↵ jump  x kill  q quit",
-            Style::default()
-                .fg(theme::OVERLAY0)
-                .add_modifier(Modifier::DIM),
-        )),
+        None => {
+            let mut spans = vec![Span::styled(
+                " -/+ ↵ jump  x kill  q quit",
+                Style::default()
+                    .fg(theme::OVERLAY0)
+                    .add_modifier(Modifier::DIM),
+            )];
+            if app.led_warning {
+                spans.push(Span::styled(" ⌨", Style::default().fg(theme::RED)));
+            }
+            Line::from(spans)
+        }
     };
     frame.render_widget(Paragraph::new(footer), area);
 }

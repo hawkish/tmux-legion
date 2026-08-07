@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod detect;
 mod hook;
+mod keyboard;
 mod notify;
 mod process;
 mod sidebar;
@@ -35,6 +36,7 @@ fn main() -> ExitCode {
             name,
             pane,
         } => run(commands::report::report(status, message, name, pane)),
+        cli::Command::Focus { slot } => run(commands::focus::focus(slot)),
         cli::Command::List { json } => run(commands::list::list(json)),
         cli::Command::Spawn {
             name,
