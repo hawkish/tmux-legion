@@ -62,7 +62,10 @@ pub fn status_color(status: Status) -> Rgb {
 mod tests {
     use super::*;
 
-    /// Mirrors sidebar::ui::status_color so the two never drift apart.
+    /// Two keys showing one colour would be a silent misreading, so the five
+    /// must stay distinct. Note this says nothing about sidebar::ui::status_color:
+    /// that is a deliberately separate table (see the module docs) and nothing
+    /// couples the two — they are free to diverge, and only agree by intent.
     #[test]
     fn every_status_maps_to_a_distinct_colour() {
         let all = [
