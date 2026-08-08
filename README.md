@@ -140,12 +140,20 @@ pane. The sidebar shows which key belongs to which agent next to its name.
 
 | status | key colour |
 |---|---|
-| blocked | red |
-| working | amber |
+| blocked | red, blinking |
+| working | amber, blinking |
 | done | teal |
 | idle | green |
 | unknown | violet |
 | no agent | blue (the floor) |
+
+The two statuses that mean *something is happening right now* blink at 1 Hz, so a key
+that wants you is the one that moves; the settled statuses hold steady and stay readable.
+Since a single key cannot be dimmed (see below), the blink alternates the status colour
+with the floor colour — half of every cycle a blinking key looks exactly like an empty
+slot. Blinking is also the one thing that puts the keyboard under steady USB traffic:
+two writes a second while any agent is working or blocked, and none at all when they
+have all settled.
 
 **tmux-legion takes over the keyboard's lighting while the sidebar is open.** It
 switches to a per-key effect, sets the global brightness, and floors every key
