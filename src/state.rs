@@ -472,18 +472,25 @@ mod tests {
 
     #[test]
     fn slots_go_to_the_oldest_agents_in_order() {
-        let mut agents = registry(&[("%3", 300), ("%1", 100), ("%2", 200)]);
+        let mut agents = registry(&[("%3", 300), ("%1", 100), ("%4", 400), ("%2", 200)]);
         assign_slots(&mut agents);
         assert_eq!(slots(&agents, "%1"), Some(1));
         assert_eq!(slots(&agents, "%2"), Some(2));
         assert_eq!(slots(&agents, "%3"), Some(3));
+        assert_eq!(slots(&agents, "%4"), Some(4));
     }
 
     #[test]
     fn agents_past_the_last_slot_get_none() {
-        let mut agents = registry(&[("%1", 100), ("%2", 200), ("%3", 300), ("%4", 400)]);
+        let mut agents = registry(&[
+            ("%1", 100),
+            ("%2", 200),
+            ("%3", 300),
+            ("%4", 400),
+            ("%5", 500),
+        ]);
         assign_slots(&mut agents);
-        assert_eq!(slots(&agents, "%4"), None);
+        assert_eq!(slots(&agents, "%5"), None);
     }
 
     /// first_seen has one-second granularity and agents spawned together tie,
@@ -530,16 +537,23 @@ mod tests {
 
     #[test]
     fn a_freed_slot_is_reused_by_the_oldest_unslotted_agent() {
-        let mut agents = registry(&[("%1", 100), ("%2", 200), ("%3", 300), ("%4", 400)]);
+        let mut agents = registry(&[
+            ("%1", 100),
+            ("%2", 200),
+            ("%3", 300),
+            ("%4", 400),
+            ("%5", 500),
+        ]);
         assign_slots(&mut agents);
-        assert_eq!(slots(&agents, "%4"), None);
+        assert_eq!(slots(&agents, "%5"), None);
 
         agents.remove("%1");
         assign_slots(&mut agents);
 
-        assert_eq!(slots(&agents, "%4"), Some(1), "slot 1 should be reused");
+        assert_eq!(slots(&agents, "%5"), Some(1), "slot 1 should be reused");
         assert_eq!(slots(&agents, "%2"), Some(2), "and nobody else moves");
         assert_eq!(slots(&agents, "%3"), Some(3));
+        assert_eq!(slots(&agents, "%4"), Some(4));
     }
 
     #[test]

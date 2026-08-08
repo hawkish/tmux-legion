@@ -97,6 +97,11 @@ tmux capture-pane -p -t "$PANE"
 > that finished or errored). `remain-on-exit` keeps the pane around so you can read
 > the error.
 
+There is no limit on how many agents you can spawn. The first four get a keyboard key
+(and its status LED, on a Keychron Q0 Max); the rest are tracked exactly the same way —
+sidebar, `list`, `wait`, status hooks — just without a key. A freed key goes to the
+oldest agent that hasn't got one.
+
 ## Observe and synchronize
 
 ```bash

@@ -1,4 +1,5 @@
 use super::ui::ROWS_PER_ENTRY;
+use crate::keyboard;
 use crate::state::{AgentEntry, Store};
 use crate::tmux;
 use ratatui::crossterm::event::{
@@ -154,12 +155,16 @@ impl App {
                 Outcome::Continue
             }
             KeyCode::Char('r') => Outcome::Reconcile,
-            // Slot keys. The numpad 4/5/6 keys are remapped to F14-F16 in
+            // Slot keys. The numpad 4/5/6/1 keys are remapped to F16-F19 in
             // firmware, and a root-table tmux binding normally swallows those
             // before they reach us — this is the fallback for terminals that
-            // drop F13+, plus the top-row digits.
-            KeyCode::F(n @ 14..=16) => self.focus_slot(n - 13),
-            KeyCode::Char(c @ '4'..='6') => self.focus_slot(c as u8 - b'3'),
+            // drop F13+, plus the top-row digits. The digits come from
+            // SLOT_KEYS rather than a range: the slots are not in key order.
+            KeyCode::F(n @ 16..=19) => self.focus_slot(n - 15),
+            KeyCode::Char(c) => match keyboard::SLOT_KEYS.iter().position(|&k| k == c) {
+                Some(i) => self.focus_slot(i as u8 + 1),
+                None => Outcome::Continue,
+            },
             _ => Outcome::Continue,
         }
     }

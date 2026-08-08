@@ -134,9 +134,9 @@ tmux-legion toggle | open | close
 
 ### Keyboard LEDs
 
-On a Keychron Q0 Max the first three agents are mirrored onto the numpad `4`, `5` and `6`
-keys: the key lights up in the agent's status colour, and pressing it jumps to that agent's
-pane. The sidebar shows which key belongs to which agent next to its name.
+On a Keychron Q0 Max the first four agents are mirrored onto the numpad `4`, `5`, `6` and
+`1` keys: the key lights up in the agent's status colour, and pressing it jumps to that
+agent's pane. The sidebar shows which key belongs to which agent next to its name.
 
 | status | key colour |
 |---|---|
@@ -192,15 +192,15 @@ but that is the backlight switch: with it off, nothing renders at all, agent
 keys included. So on this hardware the floor is the practical choice.
 
 Slots are sticky: an agent keeps its key until its pane goes away, and a freed key is
-handed to the oldest agent that hasn't got one. Agents past the third get no key.
+handed to the oldest agent that hasn't got one. Agents past the fourth get no key.
 
 Setup, once:
 
 - **Wire the keyboard up by USB.** The raw-HID interface it needs is not exposed over
   Bluetooth or the 2.4 GHz dongle.
-- **Remap the three keys in Keychron Launcher** so pressing one can mean "focus that agent"
-  instead of typing a digit. `F17`, `F18` and `F19` are the safe choices — see below. To
-  skip the remap entirely, bind something else: `set -g @legion_slot_keys 'M-4,M-5,M-6'`.
+- **Remap the four keys in Keychron Launcher** so pressing one can mean "focus that agent"
+  instead of typing a digit. `F16`–`F19` are the safe choices — see below. To skip the
+  remap entirely, bind something else: `set -g @legion_slot_keys 'M-4,M-5,M-6,M-1'`.
 - **Quit Keychron Launcher** when you're done. It holds the keyboard exclusively, so
   tmux-legion cannot open it while Launcher is connected.
 - On macOS you may need to grant your terminal **Input Monitoring** under System Settings →
@@ -215,28 +215,29 @@ Setup, once:
 Two things sit between the keyboard and tmux, and both bite.
 
 **macOS eats some F-keys.** `F13` is Print Screen and `F14`/`F15` are display brightness —
-they never reach the terminal at all, whatever the keyboard sends. Use `F17`–`F19`.
+they never reach the terminal at all, whatever the keyboard sends. Use `F16`–`F19`.
 
 **Modern terminals encode them as CSI-u, which tmux does not name.** A terminal speaking the
-Kitty keyboard protocol sends `F17` as `ESC [ 57380 u`; tmux has no key name for that, so the
-key arrives as literal text and no binding matches. `S-F5` (tmux's xterm-era name for `F17`)
+Kitty keyboard protocol sends `F16` as `ESC [ 57379 u`; tmux has no key name for that, so the
+key arrives as literal text and no binding matches. `S-F4` (tmux's xterm-era name for `F16`)
 only works if your terminal sends the legacy sequence. Bind the raw sequence with `user-keys`
 instead:
 
 ```tmux
-# F17, F18, F19 in the Kitty keyboard protocol
-set -s user-keys[0] "\033[57380u"
-set -s user-keys[1] "\033[57381u"
-set -s user-keys[2] "\033[57382u"
-set -g @legion_slot_keys 'User0,User1,User2'
+# F16, F17, F18, F19 in the Kitty keyboard protocol
+set -s user-keys[0] "\033[57379u"
+set -s user-keys[1] "\033[57380u"
+set -s user-keys[2] "\033[57381u"
+set -s user-keys[3] "\033[57382u"
+set -g @legion_slot_keys 'User0,User1,User2,User3'
 ```
 
 The codes are `57376 + (n - 13)` for `Fn`, so `F13` is `57376` and `F19` is `57382`. To check
-what your terminal actually sends, run `cat -v` and press the key: `^[[57380u` means the
-above applies, plain `^[[31~` means the `S-F5` naming works and you can skip `user-keys`.
+what your terminal actually sends, run `cat -v` and press the key: `^[[57379u` means the
+above applies, plain `^[[29~` means the `S-F4` naming works and you can skip `user-keys`.
 
 The LEDs are driven by the sidebar, so they are live only while the sidebar pane is open;
-closing it drops the three keys back to the floor. Everything degrades quietly — with no
+closing it drops the four keys back to the floor. Everything degrades quietly — with no
 keyboard attached, or on Bluetooth, the sidebar behaves exactly as before. If a keyboard was
 found and then stopped responding, a red `⌨` appears in the sidebar footer.
 
@@ -295,7 +296,7 @@ the pane around so you can see why.
 | `@legion_width` | `15%` | sidebar width (percent or columns) |
 | `@legion_position` | `left` | `left` or `right` |
 | `@legion_agents` | `claude,copilot,codex,opencode,aider,timtoo` | commands auto-detected as agents |
-| `@legion_slot_keys` | `S-F2,S-F3,S-F4` | keys that jump to slots 1-3 (no prefix); empty to disable |
+| `@legion_slot_keys` | `S-F4,S-F5,S-F6,S-F7` | keys that jump to slots 1-4 (no prefix); empty to disable |
 | `@legion_led_effect` | `23` | keyboard lighting effect to switch to, or `keep` to leave it alone |
 | `@legion_led_brightness` | unset | force the global backlight to this level; unset leaves it alone |
 | `@legion_led_floor` | on | `keep` skips the floor, leaving your own per-key colours in place |

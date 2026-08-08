@@ -199,6 +199,7 @@ mod tests {
         assert_eq!(colors[0], palette::OFF);
         assert_eq!(colors[1], palette::WORKING);
         assert_eq!(colors[2], palette::OFF);
+        assert_eq!(colors[3], palette::OFF);
     }
 
     #[test]
@@ -218,7 +219,10 @@ mod tests {
             ],
             true,
         );
-        assert_eq!(colors, [palette::OFF, palette::OFF, palette::BLOCKED]);
+        assert_eq!(
+            colors,
+            [palette::OFF, palette::OFF, palette::BLOCKED, palette::OFF]
+        );
     }
 
     #[test]

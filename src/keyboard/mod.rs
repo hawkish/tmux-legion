@@ -24,15 +24,17 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-pub const SLOT_COUNT: usize = 3;
+pub const SLOT_COUNT: usize = 4;
 
-/// Firmware LED indices for the numpad 4/5/6 keys, from g_led_config in
-/// keyboards/keychron/q0_max/encoder/encoder.c.
-pub const SLOT_LEDS: [u8; SLOT_COUNT] = [15, 16, 17];
+/// Firmware LED indices for the numpad 4/5/6/1 keys, from g_led_config in
+/// keyboards/keychron/q0_max/encoder/encoder.c. Ascending, but not contiguous:
+/// 18 is the extra-column key left of numpad 1, so the block splits into two
+/// runs (see `Painter::apply`).
+pub const SLOT_LEDS: [u8; SLOT_COUNT] = [15, 16, 17, 19];
 
 /// The physical key each slot lives on. Shown in the sidebar, since that is
 /// what the user presses — the slot number itself is an implementation detail.
-pub const SLOT_KEYS: [char; SLOT_COUNT] = ['4', '5', '6'];
+pub const SLOT_KEYS: [char; SLOT_COUNT] = ['4', '5', '6', '1'];
 
 /// How long to wait before looking for a keyboard that wasn't there.
 const RETRY: Duration = Duration::from_secs(5);
@@ -315,9 +317,9 @@ impl Painter {
     ///
     /// The handle is deliberately not kept: after a couple of dozen colour
     /// reports the keyboard keeps acking writes but stops acting on them, and
-    /// only a reopen clears it. A batch is two reports (the slots are adjacent,
-    /// so one run plus a commit), which makes an open per batch far cheaper
-    /// than the alternative — LEDs that silently freeze after a while.
+    /// only a reopen clears it. A batch is three reports (LED 18 splits the
+    /// slots into two runs, plus a commit), which makes an open per batch far
+    /// cheaper than the alternative — LEDs that silently freeze after a while.
     fn apply(&mut self, want: &SlotColors) -> Result<()> {
         let api = self.api.as_mut().context("hidapi unavailable")?;
 
@@ -468,8 +470,13 @@ fn parse_u8(value: &str) -> Option<u8> {
 mod tests {
     use super::*;
 
+    /// The first three slots spelled out, the rest left at OFF. These tests are
+    /// about the diffing, not about how many slots there are, so naming only
+    /// the slots they exercise keeps them readable as SLOT_COUNT grows.
     fn colors(a: Rgb, b: Rgb, c: Rgb) -> SlotColors {
-        [a, b, c]
+        let mut out: SlotColors = [palette::OFF; SLOT_COUNT];
+        out[..3].copy_from_slice(&[a, b, c]);
+        out
     }
 
     /// A Painter that believes it is already set up, so `render` decides purely
@@ -564,6 +571,21 @@ mod tests {
         assert!(SLOT_LEDS.windows(2).all(|w| w[0] < w[1]));
     }
 
+    /// The plugin binds one key per slot in shell, where it cannot see
+    /// `SLOT_COUNT`. Raising the constant without touching that loop would
+    /// leave the extra slots lit but unreachable, with nothing to notice it.
+    #[test]
+    fn the_shell_binding_loop_stops_at_the_last_slot() {
+        let plugin = include_str!("../../tmux-legion.tmux");
+        let cap = plugin
+            .lines()
+            .find_map(|l| l.trim().strip_prefix("[ \"$slot\" -le "))
+            .and_then(|rest| rest.split_whitespace().next())
+            .and_then(|n| n.parse::<usize>().ok())
+            .expect("tmux-legion.tmux has no `[ \"$slot\" -le N ]` cap");
+        assert_eq!(cap, SLOT_COUNT, "tmux-legion.tmux caps slots at {cap}");
+    }
+
     /// Reports, not bytes, are what the device is slow at — 8 ms of pacing
     /// each, and a couple of dozen poisons a handle. Both real call sites are
     /// pinned here so a regression in `MAX_RUN` or the splitter shows up as a
@@ -575,8 +597,9 @@ mod tests {
         let slots: Vec<(u8, device::Hsv)> = SLOT_LEDS.iter().map(|&led| (led, color)).collect();
         assert_eq!(
             device::runs(&slots).len(),
-            1,
-            "a slot repaint is one run plus a commit — two reports"
+            2,
+            "a slot repaint is two runs plus a commit — three reports; \
+             LED 18 sits between numpad 6 and numpad 1"
         );
 
         let floor: Vec<(u8, device::Hsv)> = (0..=device::MAX_LED)
@@ -585,8 +608,8 @@ mod tests {
             .collect();
         assert_eq!(
             device::runs(&floor).len(),
-            3,
-            "the floor burst is three runs plus a commit — four reports, was 24"
+            4,
+            "the floor burst is four runs plus a commit — five reports, was 24"
         );
     }
 
@@ -656,7 +679,7 @@ mod tests {
         });
         println!("after new(): error={:?}", painter.last_error);
 
-        painter.render([palette::BLOCKED, palette::IDLE, palette::DONE]);
+        painter.render(colors(palette::BLOCKED, palette::IDLE, palette::DONE));
         println!(
             "after render(): configured={} error={:?} last={:?}",
             painter.configured, painter.last_error, painter.last
@@ -708,7 +731,7 @@ mod tests {
         dev.set_leds(SLOT_LEDS[0], &run).expect("set_leds");
         dev.commit().expect("commit");
 
-        println!("\nSent LEDs {:?} as ONE report.", SLOT_LEDS);
+        println!("\nSent LEDs {:?} as ONE report.", &SLOT_LEDS[..run.len()]);
         println!("Now look at the numpad 4/5/6 keys:");
         println!(
             "  red green blue -> count works, set MAX_RUN to {}",
