@@ -60,7 +60,7 @@ The header shows the agent count, turning into a red `● N /` badge when any ar
 
 ```nix
 # Pin to a release tag (recommended); drop the ref to track the default branch.
-inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.3.0";
+inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.4.0";
 ```
 
 The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmuxPlugin`
