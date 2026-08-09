@@ -72,7 +72,7 @@ sidebar redraws on a SIGUSR1 poke.
 
 ```nix
 # Pin to a release tag (recommended); drop the ref to track the default branch.
-inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.4.1";
+inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.5.0";
 ```
 
 The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmuxPlugin`
