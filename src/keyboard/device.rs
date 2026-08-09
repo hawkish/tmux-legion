@@ -92,12 +92,14 @@ impl Device {
     }
 
     /// Fire-and-forget, but paced. The keyboard acks a colour report and then
-    /// silently ignores it if the next one arrives too quickly, so reports
-    /// need a gap between them — writes that "succeed" but never light a key
-    /// are what this timeout buys. The reference implementation in ../hid gets
-    /// the same effect accidentally, by blocking 200 ms on a reply that never
-    /// comes; that would cost seconds per repaint here, so the wait is short
-    /// and doubles as the drain for the reply we do not expect.
+    /// silently ignores it if the next one arrives too soon, so reports need a
+    /// gap between them. Without this timeout you get writes that "succeed"
+    /// and never light a key.
+    ///
+    /// The reference implementation in ../hid gets the same gap by accident,
+    /// blocking 200 ms on a reply that never comes. That would cost seconds per
+    /// repaint here, so the wait is short and doubles as the drain for the
+    /// reply we do not expect.
     fn send(&self, payload: &[u8]) -> Result<()> {
         self.handle
             .write(&frame(payload)?)
@@ -150,7 +152,7 @@ pub fn set_led_payload(led: u8, hsv: Hsv) -> [u8; 7] {
 }
 
 /// The same payload with byte 3 as a real count and one HSV triple per LED.
-/// See `MAX_RUN` for why nothing sends more than one yet.
+/// See `MAX_RUN` for how many LEDs one report carries.
 pub fn set_leds_payload(start: u8, hsv: &[Hsv]) -> Result<Vec<u8>> {
     if hsv.is_empty() {
         bail!("a run needs at least one LED");

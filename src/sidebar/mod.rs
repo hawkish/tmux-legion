@@ -14,9 +14,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const POLL_TIMEOUT: Duration = Duration::from_millis(250);
-/// Reconcile against live panes on a wall clock rather than a loop-iteration
-/// count: the loop runs faster than its poll timeout whenever input arrives or
-/// a blink edge is due, and the reconcile cadence should not follow it.
+/// Reconcile against live panes on a wall clock, not a loop-iteration count.
+/// The loop runs faster than its poll timeout whenever input arrives or a blink
+/// edge is due, and the reconcile cadence should not follow it.
 const RECONCILE_EVERY: Duration = Duration::from_secs(2);
 /// Half of the blink cycle: keys for live agents alternate between their status
 /// colour and the floor once a second.
@@ -172,8 +172,8 @@ fn event_loop(
         }
 
         // Unconditional: all the gating lives inside Leds, so an unchanged
-        // frame costs three comparisons and no USB traffic. Deliberately not
-        // in the draw path — the spinner advances every iteration, and the
+        // frame costs one comparison per slot and no USB traffic. Deliberately
+        // not in the draw path — the spinner advances every iteration, and the
         // keys must not flicker with it.
         leds.render(slot_colors(&app.entries, blink_lit(started.elapsed())));
         app.led_warning = leds.warning().is_some();

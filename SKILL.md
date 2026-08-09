@@ -9,7 +9,7 @@ description: Spawn and monitor AI agents in tmux panes with a live status sideba
 # tmux-legion
 
 `tmux-legion` tracks every AI agent in the current tmux server and shows them in a
-sidebar with a status: **working**, **blocked**, **done**, idle, or unknown.
+sidebar with a status: **working**, **blocked**, **done**, **idle**, or **unknown**.
 
 ## Preconditions
 
@@ -18,7 +18,7 @@ sidebar with a status: **working**, **blocked**, **done**, idle, or unknown.
 
 ## Report your status
 
-**If you are Claude Code, do NOT self-report** — your status is tracked automatically
+**If you're Claude Code, don't self-report** — your status is tracked automatically
 via hooks. Self-reporting is essential for every other agent (Copilot CLI, etc.):
 
 ```bash
@@ -44,7 +44,7 @@ PANE=$(tmux-legion spawn --name reviewer -- claude -p "review the diff in $(pwd)
 
 Options: `--direction right|down|left|up` (default right), `--window` for a new
 window instead of a split, `--cwd <path>`, `--focus` to move focus to the new pane.
-The `--` before the command is required.
+Put `--` before the command.
 
 ### Agent-specific invocation
 
@@ -97,10 +97,10 @@ tmux capture-pane -p -t "$PANE"
 > that finished or errored). `remain-on-exit` keeps the pane around so you can read
 > the error.
 
-There is no limit on how many agents you can spawn. The first four get a keyboard key
-(and its status LED, on a Keychron Q0 Max); the rest are tracked exactly the same way —
-sidebar, `list`, `wait`, status hooks — just without a key. A freed key goes to the
-oldest agent that hasn't got one.
+Spawn as many agents as you like. The first four get a keyboard key (and its status LED,
+on a Keychron Q0 Max); the rest are tracked exactly the same way — sidebar, `list`,
+`wait`, status hooks — without a key. A freed key goes to the oldest agent that hasn't
+got one.
 
 ## Observe and synchronize
 

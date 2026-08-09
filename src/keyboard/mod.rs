@@ -1,15 +1,15 @@
-//! Mirrors agent status onto three keys of a Keychron Q0 Max.
+//! Mirrors agent status onto four keys of a Keychron Q0 Max.
 //!
 //! Nothing here prints or panics: the only caller is the sidebar, which owns
 //! the terminal, so a stray write would corrupt the TUI. Failures are recorded
 //! in `Painter::last_error` and the device is retried a few seconds later,
 //! which also covers unplugging the keyboard mid-session.
 //!
-//! The device lives on its own thread. A batch costs several milliseconds per
-//! report in pacing alone (see `Device::send`) and the sidebar drives this
-//! continuously while an agent blinks, so `Leds` is only a handle: it drops a
-//! frame in a mailbox and returns. `Painter` on the far side does the USB work
-//! and holds all the state worth testing.
+//! The device lives on its own thread. Pacing alone costs several milliseconds
+//! per report (see `Device::send`), and the sidebar drives this continuously
+//! while an agent blinks. So `Leds` is only a handle: it drops a frame in a
+//! mailbox and returns. `Painter`, on the far side, does the USB work and holds
+//! all the state worth testing.
 
 mod color;
 mod device;
@@ -258,8 +258,8 @@ impl Painter {
     }
 
     /// Paint the slot keys, if any of them changed. Safe to call for every
-    /// frame the sidebar produces: an unchanged one is three comparisons and
-    /// touches no USB at all, which is what keeps a board of settled agents
+    /// frame the sidebar produces: an unchanged one is one comparison per slot
+    /// and touches no USB at all, which is what keeps a board of settled agents
     /// silent.
     fn render(&mut self, want: SlotColors) {
         let changed = (0..SLOT_COUNT).any(|i| self.last[i] != Some(want[i]));
@@ -326,11 +326,11 @@ impl Painter {
         if !self.configured {
             // hidapi caches the device list, so a keyboard plugged in after
             // startup is invisible until this. Only the discovery path needs
-            // it: once configured, the cached path is still the right one, and
-            // every way the device can go away — unplug, a failed write —
-            // clears `configured`, so the retry re-enumerates. Enumerating on
-            // every batch would mean a full HID sweep twice a second while
-            // anything is blinking.
+            // it: once configured, the cached path is still the right one.
+            // Every way the device can go away — unplug, a failed write —
+            // clears `configured`, so the retry re-enumerates anyway.
+            // Enumerating on every batch would mean a full HID sweep twice a
+            // second while anything is blinking.
             api.refresh_devices()
                 .context("cannot enumerate HID devices")?;
 

@@ -10,9 +10,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Prune entries this long after their agent exited but the pane lives on.
-/// Long enough to notice the exit, short enough not to clutter the sidebar
-/// (and to survive an agent's shell tool briefly holding the tty foreground —
-/// the Alive verdict resets the timer as soon as the agent is back).
+/// Long enough to notice the exit, short enough not to clutter the sidebar.
+/// It also rides out an agent's shell tool briefly holding the tty foreground:
+/// the Alive verdict resets the timer as soon as the agent is back.
 const EXITED_PRUNE_SECS: u64 = 15;
 
 const SHELLS: &[&str] = &[
@@ -257,8 +257,8 @@ fn pane_ordinal(pane_id: &str) -> u64 {
 /// an agent looks dead — an AgentExited verdict is often a transient blip (see
 /// EXITED_PRUNE_SECS), and revoking on it would shuffle every LED and shuffle
 /// them back two seconds later. A slot frees when the entry is pruned, and is
-/// reused on the next reconcile: with only three keys, holding one vacant
-/// wastes a third of the hardware.
+/// reused on the next reconcile: with only four keys, holding one vacant
+/// wastes a quarter of the hardware.
 fn assign_slots(agents: &mut BTreeMap<String, AgentEntry>) {
     let mut order: Vec<(u64, u64, String)> = agents
         .iter()
