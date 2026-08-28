@@ -312,6 +312,19 @@ fn assign_slots(agents: &mut BTreeMap<String, AgentEntry>) {
     }
 }
 
+/// Whether this pane list is worth a `ps` scan. Three cases need one: a tagged
+/// pane (process-tree verification), an interpreter foreground (could hide a
+/// wrapped agent), and an agent pane named by its own command — that last one
+/// is a plain `copilot --model ...`, which discovery claims by command name
+/// alone, so nothing tags it and its model would never be read off its argv.
+fn needs_process_snapshot(panes: &[tmux::Pane], agents: &[String]) -> bool {
+    panes.iter().any(|p| {
+        !p.pane_agent.is_empty()
+            || crate::process::is_interpreter(&p.current_command)
+            || agents.iter().any(|a| a == &p.current_command)
+    })
+}
+
 /// Sync state with the live tmux server: drop entries for dead panes, mark
 /// exited agents, discover untracked agent panes, refresh window metadata.
 pub fn reconcile(store: &Store) -> Result<()> {
@@ -319,11 +332,7 @@ pub fn reconcile(store: &Store) -> Result<()> {
     let agents = known_agents();
     let now = now();
 
-    // Only pay the ps cost when a pane needs process-tree verification
-    // (tagged) or could hide a wrapped agent (interpreter foreground).
-    let snapshot = panes
-        .iter()
-        .any(|p| !p.pane_agent.is_empty() || crate::process::is_interpreter(&p.current_command))
+    let snapshot = needs_process_snapshot(&panes, &agents)
         .then(ProcessSnapshot::scan)
         .flatten();
 
@@ -646,6 +655,21 @@ mod tests {
         std::fs::write(&store.path, b"not json").unwrap();
         assert!(store.load().agents.is_empty());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn snapshot_is_taken_for_tagged_interpreter_and_named_agent_panes() {
+        let agents: Vec<String> = vec!["claude".into(), "copilot".into()];
+
+        // Nothing agent-ish: don't pay for ps.
+        assert!(!needs_process_snapshot(&[pane("zsh", "")], &agents));
+        assert!(!needs_process_snapshot(&[pane("vim", "")], &agents));
+
+        assert!(needs_process_snapshot(&[pane("zsh", "claude")], &agents));
+        assert!(needs_process_snapshot(&[pane("node", "")], &agents));
+        // A plain `copilot --model ...` pane: no tag, no interpreter, but its
+        // command line is the only place its model is written down.
+        assert!(needs_process_snapshot(&[pane("copilot", "")], &agents));
     }
 
     #[test]
