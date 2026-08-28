@@ -26,6 +26,24 @@ fn try_handle(agent: &str, event: &str) -> anyhow::Result<()> {
     }
 
     let store = Store::for_current_server()?;
+
+    // Read the transcript outside the state lock, and only when the answer
+    // could have changed: hooks fire on every tool use, but the model only
+    // moves when the user runs /model, which Stop picks up within one turn.
+    let known_model = store
+        .load()
+        .agents
+        .get(&pane_id)
+        .and_then(|e| e.model.clone());
+    let session = (known_model.is_none() || event == "Stop")
+        .then(|| {
+            payload
+                .transcript_path
+                .as_deref()
+                .and_then(claude::read_session)
+        })
+        .flatten();
+
     let mut registered = false;
     store.mutate(|state| match action {
         ClaudeAction::Register => {
@@ -34,6 +52,7 @@ fn try_handle(agent: &str, event: &str) -> anyhow::Result<()> {
                 AgentEntry::new(&pane_id, "claude", Status::Idle, Source::Hook)
             });
             entry.last_event = Some(event.to_string());
+            apply_session(entry, &session);
         }
         ClaudeAction::Set(status) => {
             let entry = state.agents.entry(pane_id.clone()).or_insert_with(|| {
@@ -46,6 +65,7 @@ fn try_handle(agent: &str, event: &str) -> anyhow::Result<()> {
             };
             entry.set_status(status, message, Source::Hook);
             entry.last_event = Some(event.to_string());
+            apply_session(entry, &session);
         }
         ClaudeAction::Remove => {
             state.agents.remove(&pane_id);
@@ -60,4 +80,15 @@ fn try_handle(agent: &str, event: &str) -> anyhow::Result<()> {
     }
     let _ = notify::poke();
     Ok(())
+}
+
+/// Record what the transcript said, keeping the previous answer when this hook
+/// didn't look (or looked at a transcript too young to name a model yet).
+fn apply_session(entry: &mut AgentEntry, session: &Option<claude::Session>) {
+    if let Some(session) = session {
+        entry.model = Some(session.model.clone());
+        if session.version.is_some() {
+            entry.agent_version = session.version.clone();
+        }
+    }
 }

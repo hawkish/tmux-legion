@@ -91,6 +91,41 @@ impl ProcessSnapshot {
                 .cloned()
         })
     }
+
+    /// The model the named agent was launched with, read off its command line.
+    /// The last resort for agents that neither run hooks nor were spawned
+    /// through us; agents that take their model from config say nothing here.
+    ///
+    /// Only the agent's own argv counts. Agents run shell tools, and those
+    /// child command lines mention all sorts of things — one `tmux-legion
+    /// report --model` in a subshell would otherwise rewrite the sidebar.
+    pub fn find_model_in_tree(&self, seed_pid: u32, agent_name: &str) -> Option<String> {
+        self.descendants(seed_pid).iter().find_map(|pid| {
+            let info = self.info_by_pid.get(pid)?;
+            matches_agent(info, agent_name)
+                .then(|| model_flag(&info.args))
+                .flatten()
+        })
+    }
+}
+
+/// The value of a `--model <value>` / `--model=<value>` flag in a command line.
+pub fn model_flag(args: &str) -> Option<String> {
+    let mut tokens = args.split_whitespace();
+    while let Some(token) = tokens.next() {
+        if let Some(value) = token.strip_prefix("--model=") {
+            return non_empty(value);
+        }
+        if token == "--model" {
+            return tokens.next().and_then(non_empty);
+        }
+    }
+    None
+}
+
+fn non_empty(value: &str) -> Option<String> {
+    let value = value.trim_matches(['"', '\'']);
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 /// Runtimes that hide the real agent name behind their own process name.
@@ -204,6 +239,49 @@ mod tests {
         assert!(is_interpreter("/usr/local/bin/bun"));
         assert!(!is_interpreter("zsh"));
         assert!(!is_interpreter("claude"));
+    }
+
+    #[test]
+    fn model_flag_reads_both_spellings() {
+        assert_eq!(
+            model_flag("copilot --model claude-sonnet-4.6 -i hi").as_deref(),
+            Some("claude-sonnet-4.6")
+        );
+        assert_eq!(
+            model_flag("copilot --model=gpt-5.5 --autopilot").as_deref(),
+            Some("gpt-5.5")
+        );
+        assert_eq!(model_flag("claude").as_deref(), None);
+        // A dangling or empty flag is not a model.
+        assert_eq!(model_flag("claude --model").as_deref(), None);
+        assert_eq!(model_flag("claude --model=").as_deref(), None);
+    }
+
+    #[test]
+    fn find_model_in_tree_reads_the_agents_command_line() {
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 fish fish\n101 100 node node /usr/local/bin/copilot --model gpt-5.5\n",
+        );
+        assert_eq!(
+            snap.find_model_in_tree(100, "copilot").as_deref(),
+            Some("gpt-5.5")
+        );
+        assert_eq!(
+            snap.find_model_in_tree(101, "copilot").as_deref(),
+            Some("gpt-5.5")
+        );
+
+        let plain = ProcessSnapshot::from_ps_output("100 1 claude claude\n");
+        assert_eq!(plain.find_model_in_tree(100, "claude"), None);
+    }
+
+    /// Agents shell out constantly, and those command lines are not theirs.
+    #[test]
+    fn find_model_in_tree_ignores_child_command_lines() {
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 claude claude\n101 100 bash bash -c tmux-legion spawn -- copilot --model gpt-5.5\n",
+        );
+        assert_eq!(snap.find_model_in_tree(100, "claude"), None);
     }
 
     #[test]

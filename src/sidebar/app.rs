@@ -72,6 +72,8 @@ impl App {
     /// Entry index at a screen row, or None if the row is the header, footer,
     /// or below the last entry. Rendering: header on row 0, spacer on row 1,
     /// entries in ROWS_PER_ENTRY-row blocks from row 2, footer on the last row.
+    /// Every block is the same height even when an agent's model is unknown,
+    /// which is what keeps this arithmetic honest.
     fn entry_at_row(&self, row: u16, term_height: u16) -> Option<usize> {
         if row < 2 || row + 1 >= term_height {
             return None;
@@ -195,14 +197,15 @@ mod tests {
     #[test]
     fn row_maps_to_entry_block() {
         // 3 entries, term height 30, footer at row 29. Blocks: entry 0 = rows
-        // 2-4, entry 1 = rows 5-7, entry 2 = rows 8-10.
+        // 2-5, entry 1 = rows 6-9, entry 2 = rows 10-13.
         let app = app_with(3, 0);
         assert_eq!(app.entry_at_row(0, 30), None); // header
         assert_eq!(app.entry_at_row(1, 30), None); // spacer below header
         assert_eq!(app.entry_at_row(2, 30), Some(0)); // first name line
-        assert_eq!(app.entry_at_row(4, 30), Some(0)); // spacer of block 0
-        assert_eq!(app.entry_at_row(5, 30), Some(1)); // second name line
-        assert_eq!(app.entry_at_row(8, 30), Some(2));
+        assert_eq!(app.entry_at_row(3, 30), Some(0)); // its model line
+        assert_eq!(app.entry_at_row(5, 30), Some(0)); // spacer of block 0
+        assert_eq!(app.entry_at_row(6, 30), Some(1)); // second name line
+        assert_eq!(app.entry_at_row(10, 30), Some(2));
         assert_eq!(app.entry_at_row(29, 30), None); // footer row
         assert_eq!(app.entry_at_row(14, 30), None); // below last entry
     }
@@ -212,6 +215,6 @@ mod tests {
         let app = app_with(10, 2);
         // First visible block now shows entry 2.
         assert_eq!(app.entry_at_row(2, 30), Some(2));
-        assert_eq!(app.entry_at_row(5, 30), Some(3));
+        assert_eq!(app.entry_at_row(6, 30), Some(3));
     }
 }

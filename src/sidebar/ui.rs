@@ -1,7 +1,8 @@
-//! Herdr-style agents panel: two lines per agent (bold name, dim colored
-//! status with `·` separators), a spacer row between entries, braille spinner
-//! while working. Rendered manually per row so the selection highlight covers
-//! exactly the two content lines, like herdr's active-pane highlight.
+//! Herdr-style agents panel: three lines per agent (bold name, dim model and
+//! version, dim colored status with `·` separators), a spacer row between
+//! entries, braille spinner while working. Rendered manually per row so the
+//! selection highlight covers exactly the content lines, like herdr's
+//! active-pane highlight.
 use super::app::App;
 use super::theme;
 use crate::keyboard;
@@ -13,8 +14,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-/// Rows per agent entry: name line + status line + spacer.
-pub const ROWS_PER_ENTRY: u16 = 3;
+/// Rows per agent entry: name line + model line + status line + spacer.
+pub const ROWS_PER_ENTRY: u16 = 4;
 /// Header (title + spacer) + footer (help) rows.
 pub const CHROME_ROWS: u16 = 3;
 
@@ -156,6 +157,21 @@ fn render_entries(frame: &mut Frame, app: &mut App, body: Rect) {
         );
         row_y += 1;
 
+        // Model line. Always drawn, blank when nothing is known, so every card
+        // is the same height and clicks keep mapping to the right agent.
+        if row_y < bottom {
+            let dim = Style::default()
+                .fg(theme::OVERLAY0)
+                .add_modifier(Modifier::DIM);
+            let model = truncate(&model_label(entry), (body.width as usize).saturating_sub(3));
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![Span::raw("   "), Span::styled(model, dim)]))
+                    .style(row_style),
+                Rect::new(body.x, row_y, body.width, 1),
+            );
+            row_y += 1;
+        }
+
         if row_y < bottom {
             let mut label_style = Style::default().fg(status_color(entry.status));
             if !selected {
@@ -261,6 +277,21 @@ fn location_label(entry: &AgentEntry) -> String {
         .unwrap_or_else(|| format!("{}:{}", entry.window_index, entry.window_name))
 }
 
+/// What the agent is running: model first, then the agent CLI's own version
+/// where we know it. The `claude-` prefix is dropped — it repeats the agent
+/// name on the line above, and the sidebar has no columns to spare.
+fn model_label(entry: &AgentEntry) -> String {
+    let Some(model) = &entry.model else {
+        return String::new();
+    };
+    let model = model.strip_prefix("claude-").unwrap_or(model);
+    match &entry.agent_version {
+        Some(version) if entry.name == "claude" => format!("{model} · cc {version}"),
+        Some(version) => format!("{model} · v{version}"),
+        None => model.to_string(),
+    }
+}
+
 fn truncate(text: &str, max_width: usize) -> String {
     let len = text.chars().count();
     if len <= max_width {
@@ -291,8 +322,32 @@ mod tests {
 
     #[test]
     fn entry_capacity_per_height() {
-        assert_eq!(visible_entries(12), 3);
+        assert_eq!(visible_entries(12), 2);
         assert_eq!(visible_entries(2), 0);
+    }
+
+    #[test]
+    fn model_label_reads_model_then_version() {
+        use crate::status::{Source, Status};
+        let mut entry = AgentEntry::new("%1", "claude", Status::Working, Source::Hook);
+        assert_eq!(
+            model_label(&entry),
+            "",
+            "unknown model leaves the line blank"
+        );
+
+        entry.model = Some("claude-opus-5".into());
+        assert_eq!(model_label(&entry), "opus-5");
+
+        entry.agent_version = Some("2.1.220".into());
+        assert_eq!(model_label(&entry), "opus-5 · cc 2.1.220");
+
+        // Another agent's CLI version isn't Claude Code's, so it isn't labelled one.
+        let mut copilot = AgentEntry::new("%2", "copilot", Status::Idle, Source::Reported);
+        copilot.model = Some("gpt-5.5".into());
+        assert_eq!(model_label(&copilot), "gpt-5.5");
+        copilot.agent_version = Some("0.4.1".into());
+        assert_eq!(model_label(&copilot), "gpt-5.5 · v0.4.1");
     }
 
     #[test]

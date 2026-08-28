@@ -45,6 +45,14 @@ pub struct AgentEntry {
     /// The pane's working directory (for the sidebar's location label).
     #[serde(default)]
     pub path: String,
+    /// Model the agent is running, e.g. "claude-opus-5". Best effort: from the
+    /// Claude transcript, a --model flag, or `report --model`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The agent CLI's own version, e.g. "2.1.220". Only known where the agent
+    /// tells us (Claude Code transcripts); None everywhere else.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_version: Option<String>,
     /// Set when the agent process exited but its pane is still open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exited_at: Option<u64>,
@@ -70,6 +78,8 @@ impl AgentEntry {
             window_index: 0,
             window_name: String::new(),
             path: String::new(),
+            model: None,
+            agent_version: None,
             exited_at: None,
             slot: None,
         }
@@ -395,6 +405,15 @@ pub fn reconcile(store: &Store) -> Result<()> {
                 entry.window_index = pane.window_index;
                 entry.window_name = pane.window_name.clone();
                 entry.path = pane.path.clone();
+
+                // Last-resort model: an agent that neither runs hooks nor came
+                // through spawn may still name its model on its command line.
+                // Never overwrite — a transcript knows better than an argv.
+                if entry.model.is_none() {
+                    if let (Some(snap), Some(pid)) = (snapshot.as_ref(), pane.pane_pid) {
+                        entry.model = snap.find_model_in_tree(pid, &entry.name);
+                    }
+                }
             }
         }
 

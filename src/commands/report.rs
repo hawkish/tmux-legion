@@ -8,6 +8,7 @@ pub fn report(
     status: Status,
     message: Option<String>,
     name: Option<String>,
+    model: Option<String>,
     pane: Option<String>,
 ) -> Result<()> {
     // Silently succeed outside tmux so scripts can call this unconditionally.
@@ -28,6 +29,9 @@ pub fn report(
         });
         if let Some(name) = &name {
             entry.name = name.clone();
+        }
+        if model.is_some() {
+            entry.model = model.clone();
         }
         entry.set_status(status, message, Source::Reported);
         resolved_name = entry.name.clone();

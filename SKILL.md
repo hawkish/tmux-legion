@@ -33,6 +33,8 @@ Rules:
 - Report `blocked` right before any question or permission request that waits on the user.
 - Always report `done` on every exit path, including failures.
 - `--name <n>` sets the display name shown in the sidebar (e.g. `--name copilot`).
+- `--model <id>` sets the model shown under the name (e.g. `--model gpt-5.5`). Worth
+  sending once if you know what you're running and it isn't on your command line.
 
 ## Spawn a sibling agent
 

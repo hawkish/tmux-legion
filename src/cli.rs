@@ -38,6 +38,9 @@ pub enum Command {
         /// Agent name shown in the sidebar (defaults to the existing name)
         #[arg(long)]
         name: Option<String>,
+        /// Model shown in the sidebar, e.g. "gpt-5.5" (defaults to the existing model)
+        #[arg(long)]
+        model: Option<String>,
         /// Target pane id (defaults to $TMUX_PANE)
         #[arg(long)]
         pane: Option<String>,

@@ -34,8 +34,9 @@ fn main() -> ExitCode {
             status,
             message,
             name,
+            model,
             pane,
-        } => run(commands::report::report(status, message, name, pane)),
+        } => run(commands::report::report(status, message, name, model, pane)),
         cli::Command::Focus { slot } => run(commands::focus::focus(slot)),
         cli::Command::List { json } => run(commands::list::list(json)),
         cli::Command::Spawn {

@@ -13,10 +13,10 @@ mechanics, Claude Code hooks) and [herdr](https://github.com/ogulcancelik/herdr)
 
 ![tmux-legion sidebar tracking a blocked Claude Code pane and an idle Copilot pane](screen.png)
 
-Each agent gets a two-line row: a status glyph and name, then `status · directory ·
-message`. The directory is the last component of the pane's working directory, so agents
-spread across repos or worktrees stay apart at a glance. Styling follows herdr's agents
-panel (Catppuccin Mocha):
+Each agent gets a three-line row: a status glyph and name, then the model it runs, then
+`status · directory · message`. The directory is the last component of the pane's working
+directory, so agents spread across repos or worktrees stay apart at a glance. Styling
+follows herdr's agents panel (Catppuccin Mocha):
 
 | Glyph | Status | Meaning |
 |---|---|---|
@@ -28,6 +28,14 @@ panel (Catppuccin Mocha):
 
 The header shows the agent count and turns into a red `● N /` badge when any agent is
 blocked.
+
+The model line reads `opus-5 · cc 2.1.220` for Claude Code—model first, then the CLI's own
+version—and just the model for everyone else. tmux-legion finds it three ways, in this
+order: Claude Code sessions get it from the transcript the hooks point at (so a `/model`
+switch shows up after the next turn), spawned agents get it from the `--model` flag they
+were launched with, and any other tracked pane gets it from the agent's own command line.
+An agent that takes its model from a config file rather than a flag leaves the line
+blank—unless it reports one itself with `tmux-legion report --model`.
 
 ## How it works
 
@@ -145,7 +153,7 @@ to them (see [Keyboard LEDs](#keyboard-leds)).
 ### CLI
 
 ```
-tmux-legion report <working|blocked|done|idle|unknown> [-m msg] [--name n] [--pane %id]
+tmux-legion report <working|blocked|done|idle|unknown> [-m msg] [--name n] [--model id] [--pane %id]
 tmux-legion list [--json]
 tmux-legion spawn [--name n] [--direction right|down|left|up] [--window] [--cwd p] [--focus] -- <cmd...>
 tmux-legion wait [--pane %id] --status <s> [--timeout secs]    # exit 0 ok, 2 timeout, 3 pane gone

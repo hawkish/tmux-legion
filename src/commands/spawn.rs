@@ -54,12 +54,16 @@ pub fn spawn(
     });
     let _ = tmux::set_pane_option(&pane_id, "@pane_agent", &agent_name);
 
+    // The argv we were handed often names the model outright (every documented
+    // copilot invocation passes --model), so the sidebar can say so from the
+    // first frame instead of waiting for a reconcile to read it back off ps.
+    let model = crate::process::model_flag(&command.join(" "));
+
     let store = Store::for_current_server()?;
     store.mutate(|state| {
-        state.agents.insert(
-            pane_id.clone(),
-            AgentEntry::new(&pane_id, &agent_name, Status::Unknown, Source::Detected),
-        );
+        let mut entry = AgentEntry::new(&pane_id, &agent_name, Status::Unknown, Source::Detected);
+        entry.model = model;
+        state.agents.insert(pane_id.clone(), entry);
     })?;
     let _ = notify::poke();
 
