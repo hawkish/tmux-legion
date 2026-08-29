@@ -6,10 +6,16 @@ on:
     paths-ignore:
       - 'README.md'
       - 'LICENSE'
+      # Release tooling: it never enters the build, and `make release` refuses
+      # to publish a commit origin/main hasn't got, so CI still gates releases.
+      - 'Makefile'
+      - '.github/release-notes/**'
   pull_request:
     paths-ignore:
       - 'README.md'
       - 'LICENSE'
+      - 'Makefile'
+      - '.github/release-notes/**'
 
 jobs:
   build:
