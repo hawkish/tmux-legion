@@ -340,9 +340,12 @@ cargo build --release
 3. Commit all of it as `📦 release: vX.Y.Z` and push, so CI builds the commit you're about to tag.
 4. Run `make release`.
 
-`make release` tags the commit, pushes the tag, and creates the GitHub release. It checks all of the following first, and publishes nothing unless every one passes:
+`make release` tags the commit, pushes the tag, and creates the GitHub release. It checks all of the following first and publishes nothing unless every one passes. To see where you stand without publishing, run `make check`, which runs the same checks and stops there:
 
-- The tree is clean and you're on `main`.
+- `gh` is on your PATH, so the release can't stop with the tag already pushed.
+- The working tree is clean.
 - HEAD is the release commit for the version in `Cargo.toml`, and matches `origin/main`.
-- The tag exists neither locally nor on the remote.
+- The tag doesn't already exist on the remote.
 - The notes file isn't empty.
+
+Two things go unchecked on purpose. The branch you're on doesn't matter, because a tag names a commit rather than a branch. An existing local tag doesn't either: `git tag` refuses to overwrite one before anything leaves your machine.
