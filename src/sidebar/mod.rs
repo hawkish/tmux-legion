@@ -3,6 +3,7 @@ mod theme;
 mod ui;
 
 use crate::keyboard::{palette, Leds, SlotColors, SLOT_COUNT};
+use crate::power::{self, Power};
 use crate::state::{self, AgentEntry, Store};
 use crate::status::Status;
 use crate::tmux;
@@ -124,6 +125,10 @@ fn event_loop(
 ) -> Result<()> {
     let mut app = app::App::new();
     let mut leds = Leds::new();
+    // None off macOS, and on a Mac where registering failed. Either way the
+    // loop below behaves as it always did.
+    let power = power::watch();
+    let mut asleep = false;
     let _ = state::reconcile(store);
     app.reload(store);
     let started = Instant::now();
@@ -144,7 +149,8 @@ fn event_loop(
 
         // A key event, a SIGUSR1 poke, or the periodic tick each trigger one
         // reload+redraw per iteration, which coalesces bursts of pokes.
-        if event::poll(timeout)? {
+        let had_input = event::poll(timeout)?;
+        if had_input {
             let outcome = match event::read()? {
                 Event::Key(key) => Some(app.handle_key(key, store)),
                 Event::Mouse(m) => Some(app.handle_mouse(m, terminal.size()?.height)),
@@ -158,6 +164,45 @@ fn event_loop(
                 }
                 Some(app::Outcome::Continue) | None => {}
             }
+        }
+
+        // Between the notification and the machine actually suspending there
+        // are a few hundred milliseconds of ordinary loop iterations, so this
+        // has to come before the reconcile and the render below: acking a
+        // sleep and then repainting would light the keys again on the way out.
+        if let Some(rx) = &power {
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    Power::Sleeping => {
+                        asleep = true;
+                        leds.sleep(); // blocks until the keys are dark
+                        power::allow_sleep();
+                    }
+                    Power::Woke => {
+                        asleep = false;
+                        leds.wake();
+                        // Panes and agents may not have survived. Reconcile
+                        // before the next frame rather than showing a sidebar
+                        // full of things that died while we were frozen.
+                        last_reconcile = Instant::now();
+                        let _ = state::reconcile(store);
+                        app.reload(store);
+                    }
+                }
+            }
+        }
+
+        // A wake notification that never arrives would leave the keys dark for
+        // the rest of the session, which is a far worse failure than a stray
+        // repaint. Input is proof the machine is running, so trust it.
+        if asleep && had_input {
+            asleep = false;
+            leds.wake();
+        }
+
+        // Nothing below here is worth doing on a machine that is suspending.
+        if asleep {
+            continue;
         }
 
         // A poke or the periodic tick both reconcile: pokes from the

@@ -4,6 +4,7 @@ mod detect;
 mod hook;
 mod keyboard;
 mod notify;
+mod power;
 mod process;
 mod sidebar;
 mod state;

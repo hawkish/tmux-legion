@@ -95,12 +95,27 @@ impl Config {
 struct Pending {
     want: Option<SlotColors>,
     quit: bool,
+    /// Blank the keys and say when it's done: the machine is waiting to sleep.
+    sleep: bool,
+    /// Forget the board and repaint at the next opportunity.
+    wake: bool,
+    /// Set by the worker once `sleep` has been carried out.
+    blanked: bool,
 }
 
 struct Mailbox {
     pending: Mutex<Pending>,
     ready: Condvar,
+    /// Worker to caller, for the one operation that can't be fire-and-forget.
+    done: Condvar,
 }
+
+/// How long `sleep` waits for the keys to go dark.
+///
+/// Generous next to a batch, which takes milliseconds, but far short of the
+/// roughly 30 seconds macOS allows — a keyboard that stopped answering must not
+/// turn into a Mac that won't sleep.
+const BLANK_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// A handle on the device thread. Cheap to call: `render` takes a lock, stores
 /// a frame and returns, so the terminal never waits on USB.
@@ -120,6 +135,7 @@ impl Leds {
         let mailbox = Arc::new(Mailbox {
             pending: Mutex::new(Pending::default()),
             ready: Condvar::new(),
+            done: Condvar::new(),
         });
         let warning = Arc::new(Mutex::new(None));
 
@@ -155,6 +171,42 @@ impl Leds {
         self.warning.lock().ok().and_then(|w| w.clone())
     }
 
+    /// Blank the keys for a system sleep, and wait until they are.
+    ///
+    /// The only blocking call on this handle. It has to be: the caller acks the
+    /// sleep as soon as this returns, and an ack sent while a red key is still
+    /// lit is exactly the bug this exists to fix. Bounded by `BLANK_TIMEOUT`.
+    ///
+    /// Leaves the worker running — this is a pause, not a shutdown — and the
+    /// board unconfigured, so the first frame after waking repaints it whole.
+    pub fn sleep(&mut self) {
+        if self.worker.is_none() {
+            return;
+        }
+        let Ok(mut pending) = self.mailbox.pending.lock() else {
+            return; // worker panicked; the keys are beyond help
+        };
+        pending.blanked = false;
+        pending.sleep = true;
+        self.mailbox.ready.notify_one();
+        let _ = self
+            .mailbox
+            .done
+            .wait_timeout_while(pending, BLANK_TIMEOUT, |p| !p.blanked);
+    }
+
+    /// Repaint from scratch now that the machine is back.
+    ///
+    /// Fire-and-forget, unlike `sleep`: nothing is waiting on the result, and
+    /// the sidebar's next frame is what actually lights the keys.
+    pub fn wake(&mut self) {
+        let Ok(mut pending) = self.mailbox.pending.lock() else {
+            return;
+        };
+        pending.wake = true;
+        self.mailbox.ready.notify_one();
+    }
+
     /// Stop the worker and wait for it to drop the keys back to the floor.
     /// Joining matters: without it the process can exit before that last batch
     /// reaches the device. Idempotent, because both `Drop` and the caller may
@@ -179,23 +231,45 @@ impl Drop for Leds {
 
 /// Owns the device for the life of the sidebar. Ends by flooring the keys, so
 /// a clean quit leaves no stale status showing.
+/// What the worker picked up from the mailbox.
+#[derive(Debug, PartialEq)]
+enum Action {
+    Quit,
+    Sleep,
+    Wake,
+    Paint(SlotColors),
+}
+
+/// Pick the next thing to do, or `None` to keep waiting.
+///
+/// Ordered by how little the alternatives matter. Quit and sleep both end with
+/// the keys dark, so a frame queued behind either is a frame nobody will ever
+/// see. Consuming the flag is what stops one sleep being served twice.
+fn take_action(pending: &mut Pending) -> Option<Action> {
+    if pending.quit {
+        return Some(Action::Quit);
+    }
+    if pending.sleep {
+        pending.sleep = false;
+        return Some(Action::Sleep);
+    }
+    if pending.wake {
+        pending.wake = false;
+        return Some(Action::Wake);
+    }
+    pending.want.take().map(Action::Paint)
+}
+
 fn paint_loop(config: Config, mailbox: &Mailbox, warning: &Mutex<Option<String>>) {
     let mut painter = Painter::new(config);
     loop {
-        let want = {
+        let action = {
             let Ok(mut pending) = mailbox.pending.lock() else {
                 return;
             };
             loop {
-                // Quit wins over a pending frame: on the way out the only
-                // paint that matters is the floor.
-                if pending.quit {
-                    drop(pending);
-                    painter.shutdown();
-                    return;
-                }
-                if let Some(want) = pending.want.take() {
-                    break want;
+                if let Some(action) = take_action(&mut pending) {
+                    break action;
                 }
                 let Ok(next) = mailbox.ready.wait(pending) else {
                     return;
@@ -206,9 +280,26 @@ fn paint_loop(config: Config, mailbox: &Mailbox, warning: &Mutex<Option<String>>
 
         // Outside the lock: a batch takes milliseconds and `render` must never
         // block behind it.
-        painter.render(want);
-        if let Ok(mut slot) = warning.lock() {
-            *slot = painter.warning().map(str::to_string);
+        match action {
+            Action::Quit => {
+                painter.shutdown();
+                return;
+            }
+            Action::Sleep => {
+                painter.sleep();
+                // Only now is it safe for the machine to suspend.
+                if let Ok(mut pending) = mailbox.pending.lock() {
+                    pending.blanked = true;
+                }
+                mailbox.done.notify_all();
+            }
+            Action::Wake => painter.wake(),
+            Action::Paint(want) => {
+                painter.render(want);
+                if let Ok(mut slot) = warning.lock() {
+                    *slot = painter.warning().map(str::to_string);
+                }
+            }
         }
     }
 }
@@ -296,6 +387,27 @@ impl Painter {
     /// is nothing sensible to restore them to, since the stored per-key
     /// colours they applied to are gone.
     fn shutdown(&mut self) {
+        self.blank("shutdown");
+    }
+
+    /// Same floor as a quit, for a machine about to suspend. The keyboard keeps
+    /// its colours across sleep and the port stays powered, so without this a
+    /// blocked agent glows red until morning.
+    fn sleep(&mut self) {
+        self.blank("sleep");
+    }
+
+    /// Come back from sleep ready to repaint.
+    ///
+    /// `blank` already cleared `configured` and `last`, so the next frame
+    /// reconfigures and repaints on its own. All this adds is skipping the
+    /// retry window, so the keys light up on waking rather than seconds later.
+    fn wake(&mut self) {
+        self.next_probe = Instant::now();
+        debug_log("wake");
+    }
+
+    fn blank(&mut self, why: &str) {
         if !self.configured {
             return;
         }
@@ -308,8 +420,8 @@ impl Painter {
         // The only trace of the last batch: without it a clean quit looks
         // identical to a blink that happened to end on the unlit phase.
         debug_log(&match result {
-            Ok(()) => "shutdown -> ok".to_string(),
-            Err(e) => format!("shutdown -> {e:#}"),
+            Ok(()) => format!("{why} -> ok"),
+            Err(e) => format!("{why} -> {e:#}"),
         });
     }
 
@@ -613,6 +725,68 @@ mod tests {
         );
     }
 
+    /// Quit beats everything: on the way out the only paint that matters is
+    /// the floor, and a frame queued behind it would never be seen anyway.
+    #[test]
+    fn quit_outranks_a_pending_sleep_and_frame() {
+        let mut pending = Pending {
+            want: Some(colors(palette::BLOCKED, palette::OFF, palette::OFF)),
+            quit: true,
+            sleep: true,
+            wake: true,
+            blanked: false,
+        };
+        assert_eq!(take_action(&mut pending), Some(Action::Quit));
+    }
+
+    /// A frame that arrived just before the lid closed must not outrank the
+    /// sleep — painting it is how the keys end up lit through a suspend.
+    #[test]
+    fn sleep_outranks_a_pending_frame() {
+        let mut pending = Pending {
+            want: Some(colors(palette::BLOCKED, palette::OFF, palette::OFF)),
+            sleep: true,
+            ..Pending::default()
+        };
+        assert_eq!(take_action(&mut pending), Some(Action::Sleep));
+        assert!(!pending.sleep, "the flag must be consumed");
+        assert!(
+            pending.want.is_some(),
+            "the frame is still queued for after the wake"
+        );
+    }
+
+    /// Waking is only worth doing once, and the frame behind it is what
+    /// actually lights the keys.
+    #[test]
+    fn wake_is_consumed_then_yields_to_the_frame() {
+        let mut pending = Pending {
+            want: Some(colors(palette::WORKING, palette::OFF, palette::OFF)),
+            wake: true,
+            ..Pending::default()
+        };
+        assert_eq!(take_action(&mut pending), Some(Action::Wake));
+        assert!(!pending.wake, "the flag must be consumed");
+        assert!(matches!(take_action(&mut pending), Some(Action::Paint(_))));
+        assert_eq!(take_action(&mut pending), None, "nothing left to do");
+    }
+
+    /// An idle mailbox means "wait", not "paint nothing".
+    #[test]
+    fn an_empty_mailbox_has_no_action() {
+        assert_eq!(take_action(&mut Pending::default()), None);
+    }
+
+    /// The handle is used from the sidebar's loop, which has no idea whether a
+    /// worker ever started. None of it may hang or panic when one didn't.
+    #[test]
+    fn sleep_and_wake_without_a_worker_are_no_ops() {
+        let mut leds = detached_leds();
+        leds.sleep();
+        leds.wake();
+        leds.shutdown();
+    }
+
     /// A handle with nobody on the far side, so frames pile up in the mailbox
     /// where a test can look at them.
     fn detached_leds() -> Leds {
@@ -620,6 +794,7 @@ mod tests {
             mailbox: Arc::new(Mailbox {
                 pending: Mutex::new(Pending::default()),
                 ready: Condvar::new(),
+                done: Condvar::new(),
             }),
             warning: Arc::new(Mutex::new(None)),
             worker: None,
@@ -649,14 +824,29 @@ mod tests {
     }
 
     /// The whole handle lifecycle on a machine with no keyboard, which is the
-    /// common case. Really a deadlock check: `shutdown` joins the worker, so a
-    /// mailbox that failed to wake it would hang here rather than fail.
+    /// common case. Really a deadlock check: `shutdown` joins the worker and
+    /// `sleep` waits on it, so a mailbox that failed to wake it would hang here
+    /// rather than fail.
+    ///
+    /// Sleep and wake are exercised here rather than in a test of their own
+    /// because hidapi allows exactly one `HidApi` per process (see the module
+    /// docs), and a second live `Leds` running in parallel traps.
     #[test]
     fn a_worker_starts_paints_and_stops_without_a_keyboard() {
         let mut leds = Leds::new();
         assert!(leds.worker.is_some(), "worker thread did not start");
 
         leds.render(colors(palette::BLOCKED, palette::OFF, palette::OFF));
+
+        let started = Instant::now();
+        leds.sleep();
+        assert!(
+            started.elapsed() < BLANK_TIMEOUT,
+            "sleep waited out its timeout instead of being answered by the worker"
+        );
+
+        leds.wake();
+        leds.render(colors(palette::WORKING, palette::OFF, palette::OFF));
         leds.shutdown();
 
         assert!(leds.worker.is_none(), "shutdown must consume the handle");
