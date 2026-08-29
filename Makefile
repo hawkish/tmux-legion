@@ -35,30 +35,30 @@ check: check-tools check-tree check-commit check-tag check-notes
 # Without gh the release would stop with the tag already pushed.
 .PHONY: check-tools
 check-tools:
-	@command -v gh >/dev/null || { echo "release: gh CLI not found" >&2; exit 1; }
+	@command -v gh >/dev/null || { echo "check: gh CLI not found" >&2; exit 1; }
 
 .PHONY: check-tree
 check-tree:
-	@[ -z "$$(git status --porcelain)" ] || { echo "release: working tree is dirty" >&2; exit 1; }
+	@[ -z "$$(git status --porcelain)" ] || { echo "check: working tree is dirty" >&2; exit 1; }
 
 .PHONY: check-commit
 check-commit:
 	@git log -1 --format=%s | grep -q "release: $(TAG)$$" \
-		|| { echo "release: HEAD is not the release commit for $(TAG) — it is '$$(git log -1 --format=%s)'" >&2; exit 1; }
+		|| { echo "check: HEAD is not the release commit for $(TAG) — it is '$$(git log -1 --format=%s)'" >&2; exit 1; }
 	@git fetch --quiet origin main
 	@[ "$$(git rev-parse HEAD)" = "$$(git rev-parse origin/main)" ] \
-		|| { echo "release: HEAD is not what origin/main points at — push it and let CI build it first" >&2; exit 1; }
+		|| { echo "check: HEAD is not what origin/main points at — push it and let CI build it first" >&2; exit 1; }
 
 # Only the remote is worth checking: `git tag` in release refuses to overwrite a
 # local tag, and it runs before anything leaves the machine.
 .PHONY: check-tag
 check-tag:
 	@! git ls-remote --exit-code --tags origin "$(TAG)" >/dev/null 2>&1 \
-		|| { echo "release: tag $(TAG) already exists on origin" >&2; exit 1; }
+		|| { echo "check: tag $(TAG) already exists on origin" >&2; exit 1; }
 
 .PHONY: check-notes
 check-notes:
-	@[ -s "$(NOTES)" ] || { echo "release: no notes at $(NOTES) — run 'make notes', then write them" >&2; exit 1; }
+	@[ -s "$(NOTES)" ] || { echo "check: no notes at $(NOTES) — run 'make notes', then write them" >&2; exit 1; }
 
 .PHONY: release
 release: check
