@@ -326,7 +326,23 @@ finished or errored before you could read it. Turn `remain-on-exit` on to see wh
 ## Development
 
 ```bash
-nix develop        # cargo, rustc, rust-analyzer, clippy, rustfmt, tmux
+nix develop        # cargo, rustc, rust-analyzer, clippy, rustfmt, tmux, make, gh
 cargo test
 cargo build --release
 ```
+
+### Releasing
+
+`Cargo.toml` is the single source of truth for the version. `flake.nix` reads it from there, and so does `make release`. The flake pin under [Install](#nix-flake) doesn't, so update that one by hand.
+
+1. Bump `version` in `Cargo.toml`, run `cargo build` to refresh `Cargo.lock`, and repoint the flake pin in this README.
+2. Run `make notes` to scaffold `.github/release-notes/vX.Y.Z.md` from the commits since the last tag, then rewrite the bullets into prose.
+3. Commit all of it as `📦 release: vX.Y.Z` and push, so CI builds the commit you're about to tag.
+4. Run `make release`.
+
+`make release` tags the commit, pushes the tag, and creates the GitHub release. It checks all of the following first, and publishes nothing unless every one passes:
+
+- The tree is clean and you're on `main`.
+- HEAD is the release commit for the version in `Cargo.toml`, and matches `origin/main`.
+- The tag exists neither locally nor on the remote.
+- The notes file isn't empty.

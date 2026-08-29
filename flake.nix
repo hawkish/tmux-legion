@@ -75,6 +75,9 @@
             clippy
             rustfmt
             tmux
+            # `make release`
+            gnumake
+            gh
           ];
         };
       });
