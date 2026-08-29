@@ -331,6 +331,8 @@ cargo test
 make build         # cargo build --release
 ```
 
+The repo ships an `.envrc`, so if you use [direnv](https://direnv.net), run `direnv allow` once and that shell loads whenever you enter the directory.
+
 ### Releasing
 
 `Cargo.toml` is the single source of truth for the version. `flake.nix` reads it from there, and so does `make release`. The flake pin under [Install](#nix-flake) doesn't, so update that one by hand.

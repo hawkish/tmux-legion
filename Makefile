@@ -31,7 +31,7 @@ help:
 # so this says nothing about whether `nix build` will succeed.
 .PHONY: build
 build:
-	@command -v cargo >/dev/null || { echo "build: cargo not found — run 'nix develop' first" >&2; exit 1; }
+	@command -v cargo >/dev/null || { echo "build: cargo not found — run 'direnv allow', or 'nix develop' first" >&2; exit 1; }
 	cargo build --release
 
 # Everything that must hold before anything is published. Run it on its own for

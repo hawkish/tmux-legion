@@ -6,6 +6,7 @@ on:
     paths-ignore:
       - 'README.md'
       - 'LICENSE'
+      - '.envrc'
       # Release tooling: it never enters the build, and `make release` refuses
       # to publish a commit origin/main hasn't got, so CI still gates releases.
       - 'Makefile'
@@ -14,6 +15,7 @@ on:
     paths-ignore:
       - 'README.md'
       - 'LICENSE'
+      - '.envrc'
       - 'Makefile'
       - '.github/release-notes/**'
 
