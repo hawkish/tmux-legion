@@ -335,19 +335,12 @@ The repo ships an `.envrc`, so if you use [direnv](https://direnv.net), run `dir
 
 ### Releasing
 
-`Cargo.toml` is the single source of truth for the version. `flake.nix` reads it from there, and so does `make release`. The flake pin under [Install](#nix-flake) doesn't, so update that one by hand.
+CI publishes, so releasing is a commit and a push. `Cargo.toml` is the single source of truth for the version—`flake.nix` and the release job both read it from there. The flake pin under [Install](#nix-flake) doesn't, so update that one by hand.
 
 1. Bump `version` in `Cargo.toml`, run `cargo build` to refresh `Cargo.lock`, and repoint the flake pin in this README.
 2. Run `make notes` to scaffold `.github/release-notes/vX.Y.Z.md` from the commits since the last tag, then rewrite the bullets into prose.
-3. Commit all of it as `📦 release: vX.Y.Z` and push, so CI builds the commit you're about to tag.
-4. Run `make release`.
+3. Commit all of it as `📦 release: vX.Y.Z` and push.
 
-`make release` tags the commit, pushes the tag, and creates the GitHub release. It checks all of the following first and publishes nothing unless every one passes. To see where you stand without publishing, run `make check`, which runs the same checks and stops there:
+The `release` job in [ci.yml](.github/workflows/ci.yml) takes it from there. It waits for the build, tests, clippy, and fmt to pass, then checks whether the commit subject is a release for the version in `Cargo.toml`. On any other commit it stops there. On a release commit it tags, pushes the tag, and creates the GitHub release from the notes file, failing loudly if those notes are missing.
 
-- `gh` is on your PATH, so the release can't stop with the tag already pushed.
-- The working tree is clean.
-- HEAD is the release commit for the version in `Cargo.toml`, and matches `origin/main`.
-- The tag doesn't already exist on the remote.
-- The notes file isn't empty.
-
-Two things go unchecked on purpose. The branch you're on doesn't matter, because a tag names a commit rather than a branch. An existing local tag doesn't either: `git tag` refuses to overwrite one before anything leaves your machine.
+Both steps skip work that's already done, so re-running a job that failed partway finishes it instead of erroring. Use the workflow's manual trigger for that.

@@ -7,8 +7,8 @@ on:
       - 'README.md'
       - 'LICENSE'
       - '.envrc'
-      # Release tooling: it never enters the build, and `make release` refuses
-      # to publish a commit origin/main hasn't got, so CI still gates releases.
+      # Never enters the build. A release commit always moves Cargo.toml, which
+      # is not ignored, so the release job below still fires for one.
       - 'Makefile'
       - '.github/release-notes/**'
   pull_request:
@@ -18,6 +18,9 @@ on:
       - '.envrc'
       - 'Makefile'
       - '.github/release-notes/**'
+  # Escape hatch: re-run a release whose job failed partway. Both steps below
+  # are idempotent, so a second run finishes what the first one started.
+  workflow_dispatch:
 
 jobs:
   build:
@@ -35,3 +38,72 @@ jobs:
             cargo clippy --all-targets -- -D warnings
             cargo fmt --check
           '
+
+  # Publishes only when HEAD is a release commit, and only after build is green
+  # — the tag can't run ahead of the tests the way hand-tagging could.
+  release:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The repo's default workflow permission is read, so this has to be asked
+    # for explicitly or the tag push comes back 403.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags, for the already-published check below.
+          fetch-depth: 0
+
+      # Read the subject from git rather than github.event.head_commit.message,
+      # which carries the body too and would match a commit that merely
+      # mentions a release.
+      - name: Is this a release commit?
+        id: gate
+        run: |
+          version=$(awk -F'"' '/^\[package\]/{p=1;next} /^\[/{p=0} p && /^version/{print $2; exit}' Cargo.toml)
+          tag="v$version"
+          subject=$(git log -1 --format=%s)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if grep -q "release: $tag$" <<<"$subject"; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "publishing $tag from: $subject"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "not a release commit for $tag, nothing to do: $subject"
+          fi
+
+      - name: Check the notes
+        if: steps.gate.outputs.should_release == 'true'
+        env:
+          TAG: ${{ steps.gate.outputs.tag }}
+        run: |
+          notes=".github/release-notes/$TAG.md"
+          [ -s "$notes" ] || { echo "no notes at $notes — run 'make notes' and commit them" >&2; exit 1; }
+
+      - name: Tag
+        if: steps.gate.outputs.should_release == 'true'
+        env:
+          TAG: ${{ steps.gate.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "$TAG is already on origin, leaving it alone"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+      - name: Publish
+        if: steps.gate.outputs.should_release == 'true'
+        env:
+          TAG: ${{ steps.gate.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists, leaving it alone"
+            exit 0
+          fi
+          gh release create "$TAG" --verify-tag --title "$TAG" \
+            --notes-file ".github/release-notes/$TAG.md" --latest
