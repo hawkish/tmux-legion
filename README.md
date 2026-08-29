@@ -328,7 +328,7 @@ finished or errored before you could read it. Turn `remain-on-exit` on to see wh
 ```bash
 nix develop        # cargo, rustc, rust-analyzer, clippy, rustfmt, tmux, make, gh
 cargo test
-cargo build --release
+make build         # cargo build --release
 ```
 
 ### Releasing

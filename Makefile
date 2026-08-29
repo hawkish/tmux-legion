@@ -22,9 +22,17 @@ TEMPLATE := .github/release-notes/template.md
 
 .PHONY: help
 help:
+	@echo "make build    cargo build --release, into target/release/tmux-legion"
 	@echo "make notes    scaffold $(NOTES) from the commits since the last tag"
 	@echo "make check    say whether $(TAG) is ready to publish, changing nothing"
 	@echo "make release  tag $(TAG), push it, and create the GitHub release"
+
+# The release build, same as the README's. CI builds through the flake instead,
+# so this says nothing about whether `nix build` will succeed.
+.PHONY: build
+build:
+	@command -v cargo >/dev/null || { echo "build: cargo not found — run 'nix develop' first" >&2; exit 1; }
+	cargo build --release
 
 # Everything that must hold before anything is published. Run it on its own for
 # a dry run: every check only reads.
