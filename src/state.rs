@@ -46,7 +46,7 @@ pub struct AgentEntry {
     #[serde(default)]
     pub path: String,
     /// Model the agent is running, e.g. "claude-opus-5". Best effort: from the
-    /// Claude transcript, a --model flag, or `report --model`.
+    /// Claude transcript, the Codex screen, a model flag, or `report --model`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// The agent CLI's own version, e.g. "2.1.220". Only known where the agent
@@ -453,22 +453,18 @@ pub fn reconcile(store: &Store) -> Result<()> {
     // Capture pane content outside the write lock, then apply the results in a
     // second mutate. Targets were snapshotted during the reconcile mutate above
     // (Detected source, agent still alive), so no extra state read is needed.
-    let detections: Vec<(String, Status)> = detect_targets
+    let detections: Vec<(String, crate::detect::Detection)> = detect_targets
         .into_iter()
-        .filter_map(|(pane_id, name)| {
-            crate::detect::detect_status(&pane_id, &name).map(|s| (pane_id, s))
-        })
+        .filter_map(|(pane_id, name)| crate::detect::detect(&pane_id, &name).map(|d| (pane_id, d)))
         .collect();
 
     if !detections.is_empty() {
         store.mutate(|state| {
-            for (pane_id, status) in &detections {
+            for (pane_id, detection) in &detections {
                 if let Some(entry) = state.agents.get_mut(pane_id) {
                     // Re-check source: a hook might have fired between our
                     // load and this mutate; never overwrite hook/reported status.
-                    if entry.source == Source::Detected && entry.exited_at.is_none() {
-                        entry.set_status(*status, None, Source::Detected);
-                    }
+                    apply_detection(entry, detection);
                 }
             }
         })?;
@@ -477,9 +473,57 @@ pub fn reconcile(store: &Store) -> Result<()> {
     Ok(())
 }
 
+fn apply_detection(entry: &mut AgentEntry, detection: &crate::detect::Detection) {
+    if entry.source != Source::Detected || entry.exited_at.is_some() {
+        return;
+    }
+    if let Some(status) = detection.status {
+        entry.set_status(status, None, Source::Detected);
+    }
+    // A live model label is newer than the launch flags and may change after
+    // /model. An absent label (approval dialog, narrow pane) keeps the last one.
+    if let Some(model) = &detection.model {
+        entry.model = Some(model.clone());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_refreshes_model_but_missing_signals_and_reports_are_preserved() {
+        let mut entry = AgentEntry::new("%1", "codex", Status::Unknown, Source::Detected);
+        entry.model = Some("old-launch-model".into());
+        let active = crate::detect::Detection {
+            status: Some(Status::Working),
+            model: Some("GPT-6-Astra".into()),
+        };
+        apply_detection(&mut entry, &active);
+        assert_eq!(entry.model.as_deref(), Some("GPT-6-Astra"));
+        assert_eq!(entry.status, Status::Working);
+        apply_detection(&mut entry, &crate::detect::Detection::default());
+        assert_eq!(entry.status, Status::Working);
+        assert_eq!(entry.model.as_deref(), Some("GPT-6-Astra"));
+        let blocked = crate::detect::Detection {
+            status: Some(Status::Blocked),
+            model: None,
+        };
+        apply_detection(&mut entry, &blocked);
+        assert_eq!(entry.status, Status::Blocked);
+        assert_eq!(entry.model.as_deref(), Some("GPT-6-Astra"));
+        for source in [Source::Hook, Source::Reported] {
+            entry.set_status(Status::Done, None, source);
+            apply_detection(&mut entry, &active);
+            assert_eq!(entry.status, Status::Done);
+            assert_eq!(entry.source, source);
+        }
+        entry.source = Source::Detected;
+        entry.exited_at = Some(1);
+        apply_detection(&mut entry, &active);
+        assert_eq!(entry.status, Status::Done);
+        assert_eq!(entry.exited_at, Some(1));
+    }
 
     /// Build a registry from (pane_id, first_seen) pairs, inserted in the
     /// order given so the tests don't depend on BTreeMap iteration order.

@@ -69,9 +69,9 @@ pub fn unset_pane_option(pane: &str, name: &str) -> Result<()> {
     run(&["set-option", "-pu", "-t", pane, name]).map(|_| ())
 }
 
-/// Capture the current visible content of a pane as plain text (no ANSI codes).
+/// Capture visible text without ANSI codes, joining soft-wrapped UI hints.
 pub fn capture_pane(pane_id: &str) -> Result<String> {
-    run(&["capture-pane", "-p", "-t", pane_id])
+    run(&["capture-pane", "-p", "-J", "-t", pane_id])
 }
 
 pub fn list_panes() -> Result<Vec<Pane>> {

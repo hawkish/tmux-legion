@@ -30,12 +30,12 @@ The header shows the agent count and turns into a red `● N /` badge when any a
 blocked.
 
 The model line reads `opus-5 · cc 2.1.220` for Claude Code—model first, then the CLI's own
-version—and just the model for everyone else. tmux-legion finds it three ways, in this
-order: Claude Code sessions get it from the transcript the hooks point at (so a `/model`
-switch shows up after the next turn), spawned agents get it from the `--model` flag they
-were launched with, and any other tracked pane gets it from the agent's own command line.
-An agent that takes its model from a config file rather than a flag leaves the line
-blank—unless it reports one itself with `tmux-legion report --model`.
+version—and just the model for everyone else. Claude Code sessions get their model from
+the transcript the hooks point at. Codex gets its model from its visible footer or
+startup banner, so a visible `/model` change appears on the next scan. Spawned and
+discovered agents also get their model from the `--model` flag they were launched with
+(also `-m` for Codex). Other agents that select a model through
+configuration leave the line blank unless they use `tmux-legion report --model`.
 
 ## How it works
 
@@ -45,12 +45,15 @@ hook to hang it on:
 - **Claude Code** reports through hooks: prompt or tool activity marks it working, a
   permission or input request marks it blocked, an idle notification marks it idle, a
   finished turn marks it done, and session end removes it.
+- **Codex** needs no hooks. The reconciler reads its visible model label and the UI
+  around its input area: an active interrupt hint means working, approval or input
+  dialogs mean blocked, and a ready composer means idle.
 - **pi** ([pi.dev](https://pi.dev)) has no shell-hook system, so a bundled extension
   reports on its lifecycle events instead—see [Pi extension](#pi-extension).
 - **Copilot CLI** has neither, so the reconciler reads the pane's visible screen: an
   "esc to cancel" hint on its own means working, that hint *plus* an "enter to select"
   prompt means blocked, and no cancel hint means idle.
-- **Everything else** (codex, aider, ...) reports for itself with
+- **Everything else** (aider, ...) reports for itself with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
 
 Behind all of that sits a reconciler with two jobs. Nothing runs in the background: the
@@ -71,7 +74,7 @@ running under a wrapper, exited, or pane recycled. The walk clears stale tags al
 way, and a row disappears once its pane closes, gets reused, or the agent has been gone
 for about 15 seconds.
 
-The reconciler reads screen content only for agents that need it (Copilot)—it never
+The reconciler reads screen content only for agents that need it (Copilot and Codex)—it never
 scrapes hook-driven agents. State lives in one JSON file per tmux server
 (`~/.local/state/tmux-legion/`); writers take a lock and replace it atomically, and the
 sidebar redraws on a SIGUSR1 poke.
@@ -119,6 +122,18 @@ Merge [claude/hooks.json](claude/hooks.json) into `~/.claude/settings.json` (top
 `hooks` key). The hook command uses the stable path
 `~/.tmux/plugins/tmux-legion/bin/tmux-legion`; adjust it if your binary lives elsewhere.
 Hook invocations are silent, fast, and always exit 0—they never interfere with Claude.
+
+### Codex detection
+
+Run Codex in a tmux pane; no hook configuration is needed. Keep the model visible in
+Codex's status line to track model changes after the startup banner scrolls away.
+If your layout hides the model, launch with `codex --model <id>` or `codex -m <id>`
+to supply the initial label. A hidden label preserves the last known model.
+
+Detection uses the visible UI, so it depends on Codex's terminal layout. Unrecognized
+screens preserve the last known state. Completed and interrupted turns both show idle
+once the input area is ready; screen detection doesn't distinguish those outcomes.
+Explicit `tmux-legion report` updates take precedence over screen detection.
 
 ### Agent skill
 

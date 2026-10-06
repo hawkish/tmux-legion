@@ -103,7 +103,7 @@ impl ProcessSnapshot {
         self.descendants(seed_pid).iter().find_map(|pid| {
             let info = self.info_by_pid.get(pid)?;
             matches_agent(info, agent_name)
-                .then(|| model_flag(&info.args))
+                .then(|| agent_model_flag(&info.args, agent_name))
                 .flatten()
         })
     }
@@ -111,13 +111,38 @@ impl ProcessSnapshot {
 
 /// The value of a `--model <value>` / `--model=<value>` flag in a command line.
 pub fn model_flag(args: &str) -> Option<String> {
+    parse_model_flag(args, false)
+}
+
+/// Codex also accepts -m. Keep that alias agent-specific: other programs may
+/// use it for a message rather than a model.
+pub fn agent_model_flag(args: &str, agent_name: &str) -> Option<String> {
+    if agent_name == "codex" {
+        parse_model_flag(args, true)
+    } else {
+        model_flag(args)
+    }
+}
+
+fn parse_model_flag(args: &str, short_model: bool) -> Option<String> {
     let mut tokens = args.split_whitespace();
     while let Some(token) = tokens.next() {
+        if token == "--" {
+            break;
+        }
         if let Some(value) = token.strip_prefix("--model=") {
             return non_empty(value);
         }
-        if token == "--model" {
-            return tokens.next().and_then(non_empty);
+        if token == "--model" || (short_model && token == "-m") {
+            return tokens
+                .next()
+                .filter(|value| !value.starts_with('-'))
+                .and_then(non_empty);
+        }
+        if short_model {
+            if let Some(value) = token.strip_prefix("-m") {
+                return non_empty(value.strip_prefix('=').unwrap_or(value));
+            }
         }
     }
     None
@@ -239,6 +264,34 @@ mod tests {
         assert!(is_interpreter("/usr/local/bin/bun"));
         assert!(!is_interpreter("zsh"));
         assert!(!is_interpreter("claude"));
+    }
+
+    #[test]
+    fn codex_model_aliases_and_option_terminator() {
+        for args in [
+            "codex -m gpt-5.5",
+            "codex -m=gpt-5.5",
+            "codex -mgpt-5.5",
+            "codex --model gpt-5.5",
+        ] {
+            assert_eq!(agent_model_flag(args, "codex").as_deref(), Some("gpt-5.5"));
+        }
+        assert_eq!(agent_model_flag("aider -m hello", "aider"), None);
+        for args in [
+            "codex -m",
+            "codex -m=",
+            "codex -m --help",
+            "codex -- --model fake",
+        ] {
+            assert_eq!(agent_model_flag(args, "codex"), None);
+        }
+        let snap = ProcessSnapshot::from_ps_output(
+            "100 1 zsh zsh\n101 100 codex /usr/local/bin/codex -m gpt-5.5\n",
+        );
+        assert_eq!(
+            snap.find_model_in_tree(100, "codex").as_deref(),
+            Some("gpt-5.5")
+        );
     }
 
     #[test]

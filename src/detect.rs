@@ -1,12 +1,29 @@
 use crate::status::Status;
 use crate::tmux;
 
-/// Detect the current status of an agent pane by capturing and scanning its
-/// visible terminal content. Returns `None` when screen detection is not
-/// supported for the given agent name (agent uses hooks or is unknown).
-pub fn detect_status(pane_id: &str, agent_name: &str) -> Option<Status> {
+mod codex;
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Detection {
+    pub status: Option<Status>,
+    pub model: Option<String>,
+}
+
+/// Capture only supported agents, once per reconcile. Missing UI signals leave
+/// existing state intact; a failed capture must not look like an idle agent.
+pub fn detect(pane_id: &str, agent_name: &str) -> Option<Detection> {
+    if !matches!(agent_name, "codex" | "copilot" | "github-copilot" | "ghcs") {
+        return None;
+    }
     let content = tmux::capture_pane(pane_id).ok()?;
-    detect_from_content(agent_name, &content)
+    Some(if agent_name == "codex" {
+        codex::detect(&content)
+    } else {
+        Detection {
+            status: detect_from_content(agent_name, &content),
+            model: None,
+        }
+    })
 }
 
 /// Pure detection logic — takes the already-captured screen content so it can

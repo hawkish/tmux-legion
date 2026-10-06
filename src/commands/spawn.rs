@@ -57,7 +57,11 @@ pub fn spawn(
     // The argv we were handed often names the model outright (every documented
     // copilot invocation passes --model), so the sidebar can say so from the
     // first frame instead of waiting for a reconcile to read it back off ps.
-    let model = crate::process::model_flag(&command.join(" "));
+    let executable = command
+        .first()
+        .and_then(|c| c.rsplit('/').next())
+        .unwrap_or("");
+    let model = crate::process::agent_model_flag(&command.join(" "), executable);
 
     let store = Store::for_current_server()?;
     store.mutate(|state| {
