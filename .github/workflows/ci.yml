@@ -26,8 +26,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v16
+      - uses: actions/checkout@v7
+      - uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          # v21 made Determinate Nix the default; keep upstream Nix.
+          determinate: false
       - name: Build
         run: nix build --print-build-logs
       - name: Test and lint
@@ -50,7 +53,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Tags, for the already-published check below.
           fetch-depth: 0
