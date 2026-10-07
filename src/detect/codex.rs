@@ -10,15 +10,8 @@ pub(super) fn detect(content: &str) -> Detection {
         .collect();
     let tail = &lines[lines.len().saturating_sub(2)..];
     let prompt = lines.iter().rposition(|line| {
-        line.strip_prefix('›').is_some_and(|text| {
-            // Approval/menu choices use the same glyph as the composer.
-            !text
-                .trim_start()
-                .split_once('.')
-                .is_some_and(|(number, rest)| {
-                    number.parse::<u32>().is_ok() && rest.starts_with(' ')
-                })
-        })
+        line.strip_prefix('›')
+            .is_some_and(|text| !is_menu_choice(text))
     });
     let footer = prompt
         .filter(|&i| lines.len() - i <= 9)
@@ -69,6 +62,13 @@ pub(super) fn detect(content: &str) -> Detection {
         }
     });
     Detection { status, model }
+}
+
+/// Approval/menu choices ("› 1. Yes") use the same glyph as the composer.
+fn is_menu_choice(text: &str) -> bool {
+    text.trim_start()
+        .split_once('.')
+        .is_some_and(|(number, rest)| number.parse::<u32>().is_ok() && rest.starts_with(' '))
 }
 
 fn model_from_footer(line: &str) -> Option<String> {

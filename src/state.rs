@@ -456,6 +456,8 @@ pub fn reconcile(store: &Store) -> Result<()> {
     let detections: Vec<(String, crate::detect::Detection)> = detect_targets
         .into_iter()
         .filter_map(|(pane_id, name)| crate::detect::detect(&pane_id, &name).map(|d| (pane_id, d)))
+        // Nothing recognised means nothing to apply; skip the second lock.
+        .filter(|(_, d)| *d != crate::detect::Detection::default())
         .collect();
 
     if !detections.is_empty() {

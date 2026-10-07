@@ -110,7 +110,7 @@ impl ProcessSnapshot {
 }
 
 /// The value of a `--model <value>` / `--model=<value>` flag in a command line.
-pub fn model_flag(args: &str) -> Option<String> {
+fn model_flag(args: &str) -> Option<String> {
     parse_model_flag(args, false)
 }
 
