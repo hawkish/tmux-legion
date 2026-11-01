@@ -709,8 +709,7 @@ dependencies = [
 
 [[package]]
 name = "mx-keypad"
-version = "0.6.0"
-source = "git+https://github.com/hawkish/mx-keypad?tag=v0.6.0#3d7812d09124d083792328b3c217abb7a205f7dd"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",

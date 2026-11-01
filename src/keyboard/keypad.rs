@@ -1,21 +1,28 @@
-//! The MX Creative Keypad backend: a second device on the same `HidApi`,
-//! painted from the same frame as the Keychron. `mx-keypad` owns the wire
-//! protocol and the hand-over claim; this module only decides what each of
-//! the keypad's nine keys shows and relays its presses.
+//! The MX Creative Keypad backend. tmux-legion never opens the keypad:
+//! `mx-keypad run`, its own LaunchAgent, owns the device, and this module adds
+//! pages to it over the agent's socket (`mx_keypad::remote`): tmux-legion's
+//! own pages from its keypad config (see `own_pages`), then an "agents" page.
+//! The agent draws them after the user's mx-keypad pages and flips through
+//! all of them with the page buttons. It runs the own pages' actions itself,
+//! with the Accessibility grant keystrokes need, and sends back presses on the
+//! agents page, whose keys have no action. Nothing here ever posts input.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
-use mx_keypad::claim::Claim;
-use mx_keypad::render::{self, Face, IconSource};
-use mx_keypad::{Button, Event, Keypad};
+use mx_keypad::config::Key;
+use mx_keypad::remote::Client;
+use mx_keypad::render::{self, IconSource};
+use mx_keypad::{Button, Event};
 
 use super::color::Rgb;
-use super::utility::UtilityPage;
+use super::own_pages::OwnPages;
 
 /// Keys on the MX Creative Keypad's panel.
 pub const KEY_COUNT: usize = 9;
+
+/// The page's name in the agent's page list.
+const PAGE: &str = "agents";
 
 /// Built-in icon shown for an agent whose name matches nothing in the icons
 /// folder, or when there is no folder configured.
@@ -57,13 +64,13 @@ fn readable_on(bg: Rgb) -> render::Rgb {
 }
 
 impl KeyFace {
-    /// The face `mx_keypad::render::render_tile` draws for this key, resolving
-    /// its icon through `icons`.
-    fn face(&self, icons: &mut IconCache) -> Face {
+    /// The key sent to the agent for this slot, resolving its icon through
+    /// `icons`. It has no action, so the agent sends its presses back.
+    fn face(&self, icons: &mut IconCache) -> Key {
         match self {
-            KeyFace::Empty => Face {
-                background: render::Rgb(0, 0, 0),
-                ..Face::default()
+            KeyFace::Empty => Key {
+                background: Some(render::Rgb(0, 0, 0)),
+                ..Key::default()
             },
             KeyFace::Agent {
                 background,
@@ -71,15 +78,22 @@ impl KeyFace {
                 dimmed,
             } => {
                 let background = if *dimmed { Rgb(0, 0, 0) } else { *background };
-                let background = to_mx_rgb(background);
-                Face {
-                    icon: Some(icons.resolve(icon)),
-                    background,
-                    foreground: readable_on(Rgb(background.0, background.1, background.2)),
-                    ..Face::default()
+                Key {
+                    icon: Some(icon_name(&icons.resolve(icon))),
+                    background: Some(to_mx_rgb(background)),
+                    foreground: Some(readable_on(background)),
+                    ..Key::default()
                 }
             }
         }
+    }
+}
+
+/// How the wire names an icon: a built-in's name, or a file's absolute path.
+fn icon_name(icon: &IconSource) -> String {
+    match icon {
+        IconSource::Builtin(name) => name.clone(),
+        IconSource::File(path) => path.display().to_string(),
     }
 }
 
@@ -114,187 +128,100 @@ impl IconCache {
     }
 }
 
-/// `<dir>/<name>.{png,svg,jpg,jpeg}`, the first one that exists.
+/// `<dir>/<name>.{png,svg,jpg,jpeg}`, the first one that exists. The agent
+/// resolves the path itself, so it is made absolute.
 fn find_icon_file(dir: &Path, name: &str) -> Option<PathBuf> {
     ["png", "svg", "jpg", "jpeg"]
         .iter()
         .map(|ext| dir.join(format!("{name}.{ext}")))
         .find(|path| path.is_file())
+        .map(|path| std::path::absolute(&path).unwrap_or(path))
 }
 
-/// How long to wait before looking for a keypad that wasn't there, or that
-/// mx-keypad hasn't yielded yet.
-const RETRY: Duration = Duration::from_secs(1);
-
-/// Which of the keypad's two pages is up. The physical page buttons flip
-/// between them while tmux-legion holds the keypad.
-enum Screen {
-    /// Agent status tiles, built by the sidebar every frame.
-    Agents,
-    /// The user's own `mx-keypad` config, loaded once and kept across flips
-    /// so its shift state survives switching away and back.
-    Utility(Box<UtilityPage>),
-}
-
-/// Paints the MX Creative Keypad from the same `HidApi` as the Keychron,
-/// taking the hand-over claim while it does.
+/// Keeps tmux-legion's pages on `mx-keypad run`'s keypad up to date.
 pub struct KeypadPainter {
-    keypad: Option<Keypad>,
-    claim: Option<Claim>,
+    client: Client,
     icons: IconCache,
-    /// The resolved face last drawn per key, whichever page it came from —
-    /// diffing on the resolved `Face` rather than on `KeyFace` lets both
-    /// pages share one cache and one draw path.
-    last: [Option<Face>; KEY_COUNT],
-    next_probe: Instant,
-    configured: bool,
-    screen: Screen,
+    own: OwnPages,
+    /// Names of the own pages last sent, to remove one the file drops.
+    sent_own: Vec<String>,
+    /// Set by `blank` for a sleep or quit: the page is removed and stays
+    /// away until `wake`.
+    asleep: bool,
 }
 
 impl KeypadPainter {
     pub fn new(icons_dir: Option<PathBuf>) -> KeypadPainter {
         KeypadPainter {
-            keypad: None,
-            claim: None,
+            client: Client::new("tmux-legion"),
             icons: IconCache::new(icons_dir),
-            last: [const { None }; KEY_COUNT],
-            next_probe: Instant::now(),
-            configured: false,
-            screen: Screen::Agents,
+            own: OwnPages::new(),
+            sent_own: Vec::new(),
+            asleep: false,
         }
     }
 
-    /// Paint the keys that changed since the last call: the agent tiles on
-    /// the agent page, or the user's own config on the utility page — see
-    /// `Screen`. Safe to call every frame: an unchanged key costs one
-    /// comparison and no USB traffic.
-    pub fn render(&mut self, api: &mut hidapi::HidApi, want: &KeypadFaces) {
-        if Instant::now() < self.next_probe {
+    /// Send the agents page. Safe to call every frame: the client sends only
+    /// the keys that changed, and nothing while the agent isn't running.
+    pub fn render(&mut self, want: &KeypadFaces) {
+        if self.asleep {
             return;
         }
-        if self.keypad.is_none() && !self.open(api) {
-            self.next_probe = Instant::now() + RETRY;
-            return;
+        if let Err(error) = self.own.refresh() {
+            super::debug_log(&format!(
+                "keypad config: {error:#}; keeping the previous pages"
+            ));
         }
-        let resolved: [Face; KEY_COUNT] = match &self.screen {
-            Screen::Agents => std::array::from_fn(|i| want[i].face(&mut self.icons)),
-            Screen::Utility(page) => page.faces(),
-        };
-        for (i, face) in resolved.iter().enumerate() {
-            if self.last[i].as_ref() == Some(face) {
-                continue;
-            }
-            let tile = match render::render_tile(face, geometry_key_size()) {
-                Ok(tile) => tile,
-                Err(_) => continue,
-            };
-            let drawn = self
-                .keypad
-                .as_mut()
-                .is_some_and(|k| k.draw(u8::try_from(i + 1).unwrap_or(1), &tile).is_ok());
-            if drawn {
-                self.last[i] = Some(face.clone());
-            } else {
-                // Lost the device mid-batch: forget everything, let the next
-                // frame reopen and reconfigure from scratch.
-                self.keypad = None;
-                self.configured = false;
-                self.claim = None;
-                self.last = [const { None }; KEY_COUNT];
-                self.next_probe = Instant::now() + RETRY;
-                return;
-            }
-        }
+        self.send_own();
+        let faces = std::array::from_fn(|i| want[i].face(&mut self.icons));
+        self.client.set_page(PAGE, faces);
     }
 
-    /// Take the keypad over: acquire the claim, wait for mx-keypad to yield,
-    /// then open it and take the page buttons over, so they flip between our
-    /// two pages instead of whatever the firmware would otherwise do.
-    /// `false` means try again later.
-    fn open(&mut self, api: &mut hidapi::HidApi) -> bool {
-        if self.claim.is_none() {
-            self.claim = Claim::acquire("tmux-legion").ok();
+    /// Send the own pages, before the agents page the first time so they
+    /// come first, and take away any the file no longer has.
+    fn send_own(&mut self) {
+        let names: Vec<String> = self.own.pages().iter().map(|(n, _)| n.clone()).collect();
+        for gone in self.sent_own.iter().filter(|n| !names.contains(n)) {
+            self.client.remove(gone);
         }
-        if mx_keypad::claim::foreign().is_some() {
-            // mx-keypad hasn't yielded yet.
-            return false;
+        for (name, keys) in self.own.pages() {
+            self.client.set_page(name, keys.clone());
         }
-        let _ = api.refresh_devices();
-        match Keypad::open(api) {
-            Ok(Some(mut keypad)) => {
-                let _ = keypad.divert_page_buttons(true);
-                self.keypad = Some(keypad);
-                self.configured = true;
-                true
-            }
-            _ => false,
-        }
+        self.sent_own = names;
     }
 
-    /// Read key and page-button presses without blocking. A page button
-    /// flips `screen`; a grid key either focuses that slot's agent (on the
-    /// agent page, returned here for the caller to act on) or runs its own
-    /// config's action on press and lets go of a held shift on release (on
-    /// the utility page, both handled on the spot).
+    /// Keys pressed on the agents page since the last call, 1–9, oldest
+    /// first. Never blocks; also reconnects to a restarted agent.
     pub fn poll_presses(&mut self) -> Vec<u8> {
-        let Some(keypad) = self.keypad.as_mut() else {
-            return Vec::new();
-        };
-        let Ok(events) = keypad.poll(Duration::ZERO) else {
-            return Vec::new();
-        };
-        let mut focus = Vec::new();
-        for event in events {
-            match event {
-                Event::Down(Button::Key(n)) => match &mut self.screen {
-                    Screen::Agents => focus.push(n),
-                    Screen::Utility(page) => page.press(n),
-                },
-                Event::Up(Button::Key(n)) => {
-                    if let Screen::Utility(page) = &mut self.screen {
-                        page.release(n);
-                    }
-                }
-                Event::Down(Button::PageLeft | Button::PageRight) => self.flip_page(),
-                _ => {}
-            }
+        let presses = self
+            .client
+            .poll()
+            .into_iter()
+            .filter_map(|(page, event)| match event {
+                Event::Down(Button::Key(n)) if page == PAGE => Some(n),
+                _ => None,
+            })
+            .collect();
+        for error in self.client.take_errors() {
+            super::debug_log(&format!("keypad: {error}"));
         }
-        focus
+        presses
     }
 
-    /// Switch pages. The utility page is loaded once and kept, not reloaded
-    /// on every flip, so a shift toggle survives switching away and back.
-    fn flip_page(&mut self) {
-        self.screen = match &self.screen {
-            Screen::Agents => Screen::Utility(Box::new(UtilityPage::load())),
-            Screen::Utility(_) => Screen::Agents,
-        };
-    }
-
-    /// Blank the keys and drop the device, releasing the claim so mx-keypad
-    /// can take it back.
+    /// Take the pages off the keypad, for a sleep or a quit. The agent turns
+    /// back to the user's mx-keypad pages.
     pub fn blank(&mut self) {
-        if let Some(keypad) = self.keypad.as_mut() {
-            let _ = keypad.clear();
+        self.asleep = true;
+        for name in std::mem::take(&mut self.sent_own) {
+            self.client.remove(&name);
         }
-        self.keypad = None;
-        self.configured = false;
-        self.claim = None;
-        self.last = [const { None }; KEY_COUNT];
-        self.screen = Screen::Agents;
+        self.client.remove(PAGE);
     }
 
-    /// Forget the board and repaint at the next opportunity, same as waking
-    /// the Keychron.
+    /// Put the pages back on the next frame.
     pub fn wake(&mut self) {
-        self.next_probe = Instant::now();
+        self.asleep = false;
     }
-}
-
-/// `mx_keypad::geometry::DISPLAY.key_size`, named locally so this module reads
-/// as being about faces, not about the wire geometry.
-fn geometry_key_size() -> u16 {
-    mx_keypad::geometry::DISPLAY.key_size
 }
 
 /// The background each keypad slot should show. Mirrors
@@ -317,8 +244,8 @@ pub fn agent_face(background: Rgb, icon: &str, dimmed: bool) -> KeyFace {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::palette;
+    use super::*;
 
     #[test]
     fn icon_cache_falls_back_without_a_folder() {
@@ -364,51 +291,27 @@ mod tests {
     }
 
     #[test]
-    fn a_dimmed_agent_face_renders_a_black_background() {
+    fn a_dimmed_agent_face_sends_a_black_background() {
         let mut icons = IconCache::new(None);
         let face = agent_face(palette::BLOCKED, "claude", true);
-        assert_eq!(face.face(&mut icons).background, render::Rgb(0, 0, 0));
+        assert_eq!(face.face(&mut icons).background, Some(render::Rgb(0, 0, 0)));
         let face = agent_face(palette::BLOCKED, "claude", false);
         assert_eq!(
             face.face(&mut icons).background,
-            to_mx_rgb(palette::BLOCKED)
+            Some(to_mx_rgb(palette::BLOCKED))
         );
+    }
+
+    #[test]
+    fn an_agent_face_names_its_icon_for_the_wire() {
+        let mut icons = IconCache::new(None);
+        let face = agent_face(palette::BLOCKED, "claude", false);
+        assert_eq!(face.face(&mut icons).icon.as_deref(), Some(FALLBACK_ICON));
     }
 
     #[test]
     fn an_empty_key_has_no_icon() {
         let mut icons = IconCache::new(None);
         assert!(empty_face().face(&mut icons).icon.is_none());
-    }
-
-    /// Hardware smoke test: drives a real MX Creative Keypad and reports what
-    /// the keypad painter actually did. Ignored by default since it needs a
-    /// keypad on USB with mx-keypad's LaunchAgent either stopped or willing to
-    /// yield (give it a tick or two for the claim hand-over).
-    /// `cargo test --release keypad::hardware -- --ignored --nocapture`
-    #[test]
-    #[ignore]
-    fn hardware_smoke() {
-        let mut api = hidapi::HidApi::new().expect("hidapi unavailable");
-        let mut painter = KeypadPainter::new(None);
-        let mut faces: KeypadFaces = std::array::from_fn(|_| KeyFace::Empty);
-        faces[0] = agent_face(crate::keyboard::palette::BLOCKED, "claude", false);
-
-        // The claim hand-over isn't instant: mx-keypad notices our claim on
-        // its next tick, so the first render or two may find nothing yet.
-        for _ in 0..20 {
-            painter.render(&mut api, &faces);
-            if painter.configured {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-        assert!(painter.configured, "keypad never opened");
-        assert_eq!(
-            painter.last[0],
-            Some(faces[0].face(&mut IconCache::new(None))),
-            "key 1 not painted"
-        );
-        painter.blank();
     }
 }

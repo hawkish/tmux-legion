@@ -292,9 +292,10 @@ is the backlight switch, not a color. Keep the floor on this hardware.
 
 ### MX Creative Keypad
 
-tmux-legion can also drive a Logitech MX Creative Keypad, if one is plugged in and not
-held by [mx-keypad](https://github.com/hawkish/mx-keypad)'s own LaunchAgent at the
-moment—the two hand it back and forth automatically (see below). The keypad's nine keys
+tmux-legion can also drive a Logitech MX Creative Keypad through
+[mx-keypad](https://github.com/hawkish/mx-keypad)'s own agent (`mx-keypad run`, v0.7.0 or
+later), which keeps the keypad the whole time. tmux-legion adds an **agents** page to it over
+the agent's socket, next to your own mx-keypad pages. The keypad's nine keys
 cover slots 1–9, so a fifth agent onward, which the Keychron has no room for, still gets
 a key here; the first four slots light up on both devices at once if you have both.
 
@@ -318,30 +319,24 @@ doesn't want tmux-legion driving it. [`icons/agents/`](icons/agents/) ships exam
 for `claude`, `codex`, and `copilot`; point `@legion_keypad_icons` at a copy of that folder
 (or your own) to use them.
 
-#### A second page: your own mx-keypad config
+#### Your own pages
 
-The keypad's two page buttons flip between the agent view above and a second page: your own
-`mx-keypad` config (`~/.config/mx-keypad/config.json` or `$XDG_CONFIG_HOME/mx-keypad/config.json`),
-loaded once when tmux-legion takes the keypad over. This is the same
-[`mx_keypad::session::Session`](https://github.com/hawkish/mx-keypad#running-a-config) that
-`mx-keypad run` itself is built on, so every key, shortcut, shift, hold, switch, sequence, long
-press and blink your config defines works exactly the same here — tmux-legion doesn't
-reimplement any of it, only loads the config and forwards the keypad's presses to it. A config
-edit needs the sidebar reopened to pick it up, and only the config's first page is reachable
-this way. `@legion_keypad_icons` is unrelated to this page — it only picks agent icons on the
-other one; this page's icons come from the config itself, exactly as `mx-keypad run` resolves
-them.
+tmux-legion's own keypad pages live in `~/.config/tmux-legion/keypad.json` (or
+`$XDG_CONFIG_HOME/tmux-legion/keypad.json`), written in
+[mx-keypad's config format](https://github.com/hawkish/mx-keypad#configure-pages-and-keys): shortcuts, media
+keys, text, shift, long press, and so on. While the sidebar is open, the keypad shows those pages
+and then the agents page, in place of your mx-keypad config's own pages, and the page buttons
+flip through them. Edits to the file show up within a second, without reopening the sidebar; a
+file that doesn't parse leaves the last good pages up.
 
-#### The hand-over
+tmux-legion doesn't perform these keys itself. It sends the pages to mx-keypad's agent, which
+performs every action with its own Accessibility grant, so tmux-legion never needs one. Icons
+that are file paths are resolved against the file's folder, and `page` actions can only be `next`
+or `prev`.
 
-macOS opens the keypad exclusively, so mx-keypad's LaunchAgent and tmux-legion's sidebar
-take turns rather than fighting over it. Each side takes a small claim file
-(`$XDG_STATE_HOME/mx-keypad/claim`) naming itself and its pid before it opens the device,
-and watches for the other side's claim before every attempt of its own. Opening the
-sidebar makes mx-keypad notice tmux-legion's claim, drop the keypad without clearing it,
-and wait; closing the sidebar releases tmux-legion's claim and mx-keypad takes the keypad
-back and redraws your own page. A claim left behind by a process that was killed expires
-on its own—the pid is checked before anyone trusts it.
+Closing the sidebar, or the Mac going to sleep, takes tmux-legion's pages away and the keypad
+goes back to your mx-keypad pages. If mx-keypad's agent isn't running, the sidebar works as usual
+without the keypad and adds its pages as soon as the agent comes back.
 
 ### Spawning agents
 

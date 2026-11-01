@@ -14,8 +14,8 @@
 mod color;
 mod device;
 mod keypad;
+mod own_pages;
 pub mod palette;
-mod utility;
 
 pub use color::{rgb_to_hsv, Rgb};
 pub use keypad::{agent_face, empty_face, KeypadFaces};
@@ -160,8 +160,8 @@ struct Mailbox {
 /// turn into a Mac that won't sleep.
 const BLANK_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// How often the worker wakes on its own, with nothing pending, to poll the
-/// MX Creative Keypad for presses between frames. Only paid while the keypad
+/// How often the worker wakes on its own, with nothing pending, to read the
+/// MX Creative Keypad's presses from mx-keypad between frames. Only paid while the keypad
 /// backend is on; everyone else keeps the plain, wake-on-notify loop.
 const KEYPAD_POLL: Duration = Duration::from_millis(50);
 
@@ -406,8 +406,8 @@ struct Painter {
     /// Keychron plugged in" — the normal case for everyone else — and must
     /// stay silent.
     seen_device: bool,
-    /// The MX Creative Keypad backend, when `@legion_keypad` is on. Shares
-    /// `api`, since hidapi allows one `HidApi` per process.
+    /// The MX Creative Keypad backend, when `@legion_keypad` is on: a page
+    /// on mx-keypad's agent, not a second HID device.
     keypad: Option<KeypadPainter>,
 }
 
@@ -447,9 +447,7 @@ impl Painter {
     /// agents silent. The keypad does its own, separate change-tracking.
     fn render(&mut self, want: Frame) {
         if let (Some(keypad), Some(faces)) = (self.keypad.as_mut(), want.keypad.as_ref()) {
-            if let Some(api) = self.api.as_mut() {
-                keypad.render(api, faces);
-            }
+            keypad.render(faces);
         }
 
         let changed = (0..SLOT_COUNT).any(|i| self.last[i] != Some(want.leds[i]));
@@ -484,8 +482,8 @@ impl Painter {
     /// Drop the slot keys back to the floor, leaving the whole board one
     /// uniform colour. The effect and brightness stay as we set them — there
     /// is nothing sensible to restore them to, since the stored per-key
-    /// colours they applied to are gone. Also blanks and releases the MX
-    /// Creative Keypad, if the backend is on, so mx-keypad can take it back.
+    /// colours they applied to are gone. Also takes the agents page off the MX
+    /// Creative Keypad, if the backend is on.
     fn shutdown(&mut self) {
         self.blank("shutdown");
         if let Some(keypad) = self.keypad.as_mut() {
@@ -650,8 +648,9 @@ pub fn cleanup() {
     let Ok(mut api) = hidapi::HidApi::new() else {
         return;
     };
+    // The MX Creative Keypad needs nothing here: the agents page lives on
+    // mx-keypad's socket connection, which closes with the dying sidebar.
     cleanup_keychron(&mut api);
-    cleanup_keypad(&mut api);
 }
 
 fn cleanup_keychron(api: &mut hidapi::HidApi) {
@@ -669,26 +668,6 @@ fn cleanup_keychron(api: &mut hidapi::HidApi) {
             let _ = dev.set_led(led, rgb_to_hsv(palette::OFF));
         }
         let _ = dev.commit();
-        return;
-    }
-}
-
-/// Blank the MX Creative Keypad too, if the dying sidebar had it. Its claim
-/// expires on its own once this process is gone — `claim::foreign`'s pid
-/// check covers that — but the screen itself keeps showing the last frame
-/// until something clears it, same as the Keychron above.
-fn cleanup_keypad(api: &mut hidapi::HidApi) {
-    for attempt in 0..CLEANUP_ATTEMPTS {
-        if attempt > 0 {
-            std::thread::sleep(CLEANUP_BACKOFF);
-        }
-        if api.refresh_devices().is_err() {
-            continue;
-        }
-        let Ok(Some(mut keypad)) = mx_keypad::Keypad::open(api) else {
-            continue;
-        };
-        let _ = keypad.clear();
         return;
     }
 }
@@ -1028,7 +1007,11 @@ mod tests {
         });
         println!("after new(): error={:?}", painter.last_error);
 
-        painter.render(frame(colors(palette::BLOCKED, palette::IDLE, palette::DONE)));
+        painter.render(frame(colors(
+            palette::BLOCKED,
+            palette::IDLE,
+            palette::DONE,
+        )));
         println!(
             "after render(): configured={} error={:?} last={:?}",
             painter.configured, painter.last_error, painter.last
