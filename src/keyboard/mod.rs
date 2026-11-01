@@ -15,6 +15,7 @@ mod color;
 mod device;
 mod keypad;
 pub mod palette;
+mod utility;
 
 pub use color::{rgb_to_hsv, Rgb};
 pub use keypad::{agent_face, empty_face, KeypadFaces};

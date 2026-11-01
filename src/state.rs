@@ -59,8 +59,9 @@ pub struct AgentEntry {
     /// Set when the agent process exited but its pane is still open.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exited_at: Option<u64>,
-    /// Keyboard slot 1..=SLOT_COUNT, mapped to a physical LED key. Sticky: an
-    /// agent keeps its slot until its entry goes away. None past the last slot.
+    /// Keyboard slot 1..=SLOT_COUNT, mapped to a physical key. Left to right,
+    /// consecutive, oldest agent first: recomputed every reconcile, so it can
+    /// move down when an older agent is pruned. None past the last slot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slot: Option<u8>,
 }
@@ -254,64 +255,25 @@ fn judge_pane(
     }
 }
 
-/// The numeric part of a tmux pane id ("%12" -> 12). tmux allocates these
-/// monotonically per server, so this is a total order on pane creation — which
-/// is what breaks first_seen's one-second ties when agents start together.
-fn pane_ordinal(pane_id: &str) -> u64 {
-    pane_id
-        .strip_prefix('%')
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(u64::MAX)
-}
-
-/// Hand out keyboard slots: sticky, lowest free slot wins, oldest agent first.
-///
-/// Slots are held for as long as the entry exists rather than freed the moment
-/// an agent looks dead — an AgentExited verdict is often a transient blip (see
-/// EXITED_PRUNE_SECS), and revoking on it would shuffle every LED and shuffle
-/// them back two seconds later. A slot frees when the entry is pruned, and is
-/// reused on the next reconcile: with only four keys, holding one vacant
-/// wastes a quarter of the hardware.
+/// Hand out keyboard slots left to right, consecutively, in the same order
+/// the sidebar lists agents top to bottom — session, then window index, then
+/// pane id (see `app::reload`) — so key 1 is always the agent on the first
+/// row, key 2 the second, and so on. Recomputed from scratch every
+/// reconcile: an agent's slot can move when one above it in the list goes
+/// away, trading position stability for a key order that always matches
+/// what's on screen.
 fn assign_slots(agents: &mut BTreeMap<String, AgentEntry>) {
-    let mut order: Vec<(u64, u64, String)> = agents
+    let mut order: Vec<(String, u32, String)> = agents
         .iter()
-        .map(|(id, e)| (e.first_seen, pane_ordinal(id), id.clone()))
+        .map(|(id, e)| (e.session.clone(), e.window_index, id.clone()))
         .collect();
     order.sort();
 
-    let mut taken = [false; SLOT_COUNT as usize];
-
-    // Honour existing claims first, so slots stay put across reconciles.
-    // Out-of-range and duplicate claims can only come from a hand-edited state
-    // file, but a duplicate would put two agents on one key, so drop the newer.
-    for (_, _, id) in &order {
+    for (i, (_, _, id)) in order.iter().enumerate() {
         let Some(entry) = agents.get_mut(id) else {
             continue;
         };
-        match entry.slot {
-            Some(n) if (1..=SLOT_COUNT).contains(&n) && !taken[n as usize - 1] => {
-                taken[n as usize - 1] = true;
-            }
-            Some(_) => entry.slot = None,
-            None => {}
-        }
-    }
-
-    for (_, _, id) in &order {
-        let Some(entry) = agents.get_mut(id) else {
-            continue;
-        };
-        if entry.slot.is_some() {
-            continue;
-        }
-        match taken.iter().position(|t| !t) {
-            Some(i) => {
-                taken[i] = true;
-                entry.slot = Some(i as u8 + 1);
-            }
-            // Every slot is spoken for; everyone else stays unslotted.
-            None => break,
-        }
+        entry.slot = (i < SLOT_COUNT as usize).then(|| i as u8 + 1);
     }
 }
 
@@ -530,14 +492,17 @@ mod tests {
         assert_eq!(entry.exited_at, Some(1));
     }
 
-    /// Build a registry from (pane_id, first_seen) pairs, inserted in the
-    /// order given so the tests don't depend on BTreeMap iteration order.
-    fn registry(entries: &[(&str, u64)]) -> BTreeMap<String, AgentEntry> {
+    /// Build a registry from (pane_id, session, window_index) triples,
+    /// inserted in the order given so the tests don't depend on BTreeMap
+    /// iteration order. Slots follow the same order the sidebar lists
+    /// entries in (`app::reload`): session, then window index, then pane id.
+    fn registry(entries: &[(&str, &str, u32)]) -> BTreeMap<String, AgentEntry> {
         entries
             .iter()
-            .map(|(pane, first_seen)| {
+            .map(|(pane, session, window_index)| {
                 let mut e = AgentEntry::new(pane, "claude", Status::Working, Source::Hook);
-                e.first_seen = *first_seen;
+                e.session = (*session).to_string();
+                e.window_index = *window_index;
                 (pane.to_string(), e)
             })
             .collect()
@@ -548,8 +513,8 @@ mod tests {
     }
 
     #[test]
-    fn slots_go_to_the_oldest_agents_in_order() {
-        let mut agents = registry(&[("%3", 300), ("%1", 100), ("%4", 400), ("%2", 200)]);
+    fn slots_follow_the_sidebars_top_to_bottom_order() {
+        let mut agents = registry(&[("%3", "s", 3), ("%1", "s", 1), ("%4", "s", 4), ("%2", "s", 2)]);
         assign_slots(&mut agents);
         assert_eq!(slots(&agents, "%1"), Some(1));
         assert_eq!(slots(&agents, "%2"), Some(2));
@@ -563,7 +528,8 @@ mod tests {
             .map(|n| {
                 let pane = format!("%{n}");
                 let mut e = AgentEntry::new(&pane, "claude", Status::Working, Source::Hook);
-                e.first_seen = u64::from(n) * 100;
+                e.session = "s".into();
+                e.window_index = u32::from(n);
                 (pane, e)
             })
             .collect();
@@ -572,25 +538,25 @@ mod tests {
         assert_eq!(slots(&agents, &last), None);
     }
 
-    /// first_seen has one-second granularity and agents spawned together tie,
-    /// so the pane ordinal decides. Note %2 must beat %10 — that is numeric
-    /// order, not the BTreeMap's lexicographic order.
+    /// Two agents in the same window tie on session and window index, so the
+    /// pane id breaks it — a plain string compare, the same as `app::reload`
+    /// uses to order the sidebar, so "%10" sorts before "%2".
     #[test]
-    fn ties_break_on_pane_ordinal_not_lexicographically() {
-        let mut agents = registry(&[("%10", 100), ("%2", 100)]);
+    fn ties_within_a_window_break_on_pane_id_like_the_sidebar_does() {
+        let mut agents = registry(&[("%10", "s", 1), ("%2", "s", 1)]);
         assign_slots(&mut agents);
-        assert_eq!(slots(&agents, "%2"), Some(1));
-        assert_eq!(slots(&agents, "%10"), Some(2));
+        assert_eq!(slots(&agents, "%10"), Some(1));
+        assert_eq!(slots(&agents, "%2"), Some(2));
     }
 
     #[test]
-    fn slots_are_sticky_across_repeated_assignment() {
-        let mut agents = registry(&[("%1", 100), ("%2", 200)]);
+    fn slots_are_recomputed_each_time_but_order_is_stable() {
+        let mut agents = registry(&[("%1", "s", 1), ("%2", "s", 2)]);
         assign_slots(&mut agents);
 
-        // A newer agent must not displace anyone, even if it sorts first by
-        // pane id.
-        agents.extend(registry(&[("%0", 300)]));
+        // A newer window is never inserted ahead of older ones, even if its
+        // pane sorts first lexicographically.
+        agents.extend(registry(&[("%0", "s", 3)]));
         assign_slots(&mut agents);
 
         assert_eq!(slots(&agents, "%1"), Some(1));
@@ -598,67 +564,50 @@ mod tests {
         assert_eq!(slots(&agents, "%0"), Some(3));
     }
 
-    /// A newcomer fills the gap a departed agent left rather than pushing the
-    /// survivors down: an agent's key must not change under it just because
-    /// some other agent died.
+    /// Slots have no memory: whatever the field held before, assigning from
+    /// scratch always lands the current survivors in the sidebar's order.
     #[test]
-    fn a_newcomer_fills_a_gap_without_moving_the_survivor() {
-        let mut agents = registry(&[("%4", 100), ("%13", 200)]);
-        agents.get_mut("%4").unwrap().slot = Some(1);
+    fn assignment_ignores_whatever_was_there_before() {
+        let mut agents = registry(&[("%4", "s", 1), ("%13", "s", 2)]);
+        // Pretend these came from a stale or hand-edited state file.
+        agents.get_mut("%4").unwrap().slot = Some(7);
         agents.get_mut("%13").unwrap().slot = Some(3);
 
-        agents.extend(registry(&[("%14", 300)]));
         assign_slots(&mut agents);
 
-        assert_eq!(slots(&agents, "%13"), Some(3), "survivor must not move");
-        assert_eq!(slots(&agents, "%14"), Some(2), "newcomer takes the gap");
+        assert_eq!(slots(&agents, "%4"), Some(1), "first row is always slot 1");
+        assert_eq!(slots(&agents, "%13"), Some(2));
     }
 
+    /// The whole point: when an agent earlier in the list is pruned,
+    /// everyone still here shifts up so the filled keys stay left to right
+    /// and consecutive — no permanent gap at the freed slot.
     #[test]
-    fn a_freed_slot_is_reused_by_the_oldest_unslotted_agent() {
+    fn a_pruned_agent_closes_the_gap_by_shifting_the_rest_down() {
         let mut agents: BTreeMap<String, AgentEntry> = (1..=SLOT_COUNT + 1)
             .map(|n| {
                 let pane = format!("%{n}");
                 let mut e = AgentEntry::new(&pane, "claude", Status::Working, Source::Hook);
-                e.first_seen = u64::from(n) * 100;
+                e.session = "s".into();
+                e.window_index = u32::from(n);
                 (pane, e)
             })
             .collect();
         assign_slots(&mut agents);
-        let last = format!("%{}", SLOT_COUNT + 1);
-        assert_eq!(slots(&agents, &last), None);
+        let overflow = format!("%{}", SLOT_COUNT + 1);
+        assert_eq!(slots(&agents, &overflow), None);
 
         agents.remove("%1");
         assign_slots(&mut agents);
 
-        assert_eq!(slots(&agents, &last), Some(1), "slot 1 should be reused");
-        assert_eq!(slots(&agents, "%2"), Some(2), "and nobody else moves");
-        assert_eq!(slots(&agents, "%3"), Some(3));
-        assert_eq!(slots(&agents, "%4"), Some(4));
-    }
-
-    #[test]
-    fn duplicate_and_out_of_range_claims_are_resolved_in_favour_of_the_older() {
-        let mut agents = registry(&[("%1", 100), ("%2", 200), ("%3", 300)]);
-        // Only reachable via a hand-edited state file, but two agents sharing
-        // one key would be worse than reassigning.
-        agents.get_mut("%1").unwrap().slot = Some(2);
-        agents.get_mut("%2").unwrap().slot = Some(2);
-        agents.get_mut("%3").unwrap().slot = Some(99);
-
-        assign_slots(&mut agents);
-
-        assert_eq!(slots(&agents, "%1"), Some(2), "older keeps the claim");
-        assert_eq!(slots(&agents, "%2"), Some(1));
-        assert_eq!(slots(&agents, "%3"), Some(3));
-    }
-
-    #[test]
-    fn pane_ordinal_parses_ids_and_survives_junk() {
-        assert_eq!(pane_ordinal("%12"), 12);
-        assert_eq!(pane_ordinal("%0"), 0);
-        assert_eq!(pane_ordinal("nonsense"), u64::MAX);
-        assert_eq!(pane_ordinal("%"), u64::MAX);
+        assert_eq!(slots(&agents, "%2"), Some(1), "shifted down to close the gap");
+        assert_eq!(slots(&agents, "%3"), Some(2));
+        assert_eq!(slots(&agents, "%4"), Some(3));
+        assert_eq!(
+            slots(&agents, &overflow),
+            Some(SLOT_COUNT),
+            "the overflow agent now fits"
+        );
     }
 
     #[test]

@@ -141,9 +141,44 @@ fn keypad_faces(entries: &[AgentEntry], lit: bool) -> keyboard::KeypadFaces {
             palette::status_color(entry.status)
         };
         let dimmed = entry.exited_at.is_none() && blinks(entry) && !lit;
-        *cell = keyboard::agent_face(background, &entry.name, dimmed);
+        *cell = keyboard::agent_face(background, icon_key(entry), dimmed);
     }
     faces
+}
+
+/// What picks an entry's icon: its model's family when known, so a Claude
+/// session shows the same icon everywhere it runs — opencode, Copilot CLI,
+/// anywhere — rather than one icon per launcher. Falls back to the agent's
+/// own name when no model is known, which is also what makes `claude` and
+/// `codex` entries (which run their own, eponymous CLI and whose model is
+/// not always known) show their own icon by default.
+fn icon_key(entry: &AgentEntry) -> &str {
+    entry
+        .model
+        .as_deref()
+        .and_then(model_family)
+        .unwrap_or(&entry.name)
+}
+
+/// A short icon-folder key for a model name, matched by substring since
+/// labels vary a lot across agents and providers ("claude-opus-5",
+/// "Claude Sonnet 5", "o3", "gpt-5.5", "GPT-6 Astra"). `None` when the
+/// family isn't recognised, so the caller falls back to the agent's name.
+fn model_family(model: &str) -> Option<&'static str> {
+    let lower = model.to_lowercase();
+    if lower.contains("claude") {
+        return Some("claude");
+    }
+    let openai = lower.contains("gpt") || lower.contains("codex")
+        // Reasoning-model short names: "o3", "o4-mini", not words that merely
+        // start with "o", by requiring a digit right after it.
+        || lower
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .any(|word| {
+                word.strip_prefix('o')
+                    .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+            });
+    openai.then_some("codex")
 }
 
 fn event_loop(
@@ -428,6 +463,63 @@ mod tests {
         assert_eq!(
             keypad_faces(&one, false)[0],
             keyboard::agent_face(palette::UNKNOWN, "claude", false)
+        );
+    }
+
+    /// The model picks the icon, not the launcher: an opencode or Copilot CLI
+    /// session running Claude shows the Claude icon, same as Claude Code
+    /// itself.
+    #[test]
+    fn keypad_faces_pick_the_icon_by_model_not_by_launcher() {
+        let mut e = entry("%1", Status::Idle, Some(1));
+        e.name = "opencode".into();
+        e.model = Some("Claude Sonnet 5".into());
+        assert_eq!(
+            keypad_faces(&[e], true)[0],
+            keyboard::agent_face(palette::IDLE, "claude", false)
+        );
+
+        let mut e = entry("%1", Status::Idle, Some(1));
+        e.name = "copilot".into();
+        e.model = Some("gpt-5.5".into());
+        assert_eq!(
+            keypad_faces(&[e], true)[0],
+            keyboard::agent_face(palette::IDLE, "codex", false)
+        );
+
+        // o3, o4-mini etc: an "o" followed by a digit, not any word starting
+        // with "o".
+        let mut e = entry("%1", Status::Idle, Some(1));
+        e.model = Some("o3".into());
+        assert_eq!(
+            keypad_faces(&[e], true)[0],
+            keyboard::agent_face(palette::IDLE, "codex", false)
+        );
+        let mut e = entry("%1", Status::Idle, Some(1));
+        e.model = Some("opus-5".into());
+        assert_ne!(
+            keypad_faces(&[e.clone()], true)[0],
+            keyboard::agent_face(palette::IDLE, "codex", false)
+        );
+    }
+
+    /// An unrecognised or absent model falls back to the agent's own name,
+    /// which is how `claude` and `codex` entries get their own icon before
+    /// a model is ever known.
+    #[test]
+    fn keypad_faces_fall_back_to_the_agent_name_without_a_known_model() {
+        let one = [entry("%1", Status::Idle, Some(1))]; // name "claude", no model
+        assert_eq!(
+            keypad_faces(&one, true)[0],
+            keyboard::agent_face(palette::IDLE, "claude", false)
+        );
+
+        let mut e = entry("%1", Status::Idle, Some(1));
+        e.name = "opencode".into();
+        e.model = Some("Llama 4".into());
+        assert_eq!(
+            keypad_faces(&[e], true)[0],
+            keyboard::agent_face(palette::IDLE, "opencode", false)
         );
     }
 }

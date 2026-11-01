@@ -2,6 +2,7 @@ use crate::tmux;
 
 mod codex;
 mod copilot;
+mod opencode;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Detection {
@@ -23,6 +24,7 @@ fn parser(agent_name: &str) -> Option<fn(&str) -> Detection> {
     match agent_name {
         "codex" => Some(codex::detect),
         "copilot" | "github-copilot" | "ghcs" => Some(copilot::detect),
+        "opencode" => Some(opencode::detect),
         _ => None,
     }
 }
@@ -44,5 +46,11 @@ mod tests {
             let parse = parser(name).expect(name);
             assert_eq!(parse("Esc to cancel").status, Some(Status::Working));
         }
+    }
+
+    #[test]
+    fn opencode_recognised() {
+        let parse = parser("opencode").expect("opencode");
+        assert_eq!(parse("esc interrupt").status, Some(Status::Working));
     }
 }

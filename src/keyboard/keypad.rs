@@ -9,9 +9,10 @@ use std::time::{Duration, Instant};
 
 use mx_keypad::claim::Claim;
 use mx_keypad::render::{self, Face, IconSource};
-use mx_keypad::Keypad;
+use mx_keypad::{Button, Event, Keypad};
 
 use super::color::Rgb;
+use super::utility::UtilityPage;
 
 /// Keys on the MX Creative Keypad's panel.
 pub const KEY_COUNT: usize = 9;
@@ -125,15 +126,29 @@ fn find_icon_file(dir: &Path, name: &str) -> Option<PathBuf> {
 /// mx-keypad hasn't yielded yet.
 const RETRY: Duration = Duration::from_secs(1);
 
+/// Which of the keypad's two pages is up. The physical page buttons flip
+/// between them while tmux-legion holds the keypad.
+enum Screen {
+    /// Agent status tiles, built by the sidebar every frame.
+    Agents,
+    /// The user's own `mx-keypad` config, loaded once and kept across flips
+    /// so its shift state survives switching away and back.
+    Utility(Box<UtilityPage>),
+}
+
 /// Paints the MX Creative Keypad from the same `HidApi` as the Keychron,
 /// taking the hand-over claim while it does.
 pub struct KeypadPainter {
     keypad: Option<Keypad>,
     claim: Option<Claim>,
     icons: IconCache,
-    last: [Option<KeyFace>; KEY_COUNT],
+    /// The resolved face last drawn per key, whichever page it came from —
+    /// diffing on the resolved `Face` rather than on `KeyFace` lets both
+    /// pages share one cache and one draw path.
+    last: [Option<Face>; KEY_COUNT],
     next_probe: Instant,
     configured: bool,
+    screen: Screen,
 }
 
 impl KeypadPainter {
@@ -145,11 +160,14 @@ impl KeypadPainter {
             last: [const { None }; KEY_COUNT],
             next_probe: Instant::now(),
             configured: false,
+            screen: Screen::Agents,
         }
     }
 
-    /// Paint the keys that changed since the last call. Safe to call every
-    /// frame: an unchanged key costs one comparison and no USB traffic.
+    /// Paint the keys that changed since the last call: the agent tiles on
+    /// the agent page, or the user's own config on the utility page — see
+    /// `Screen`. Safe to call every frame: an unchanged key costs one
+    /// comparison and no USB traffic.
     pub fn render(&mut self, api: &mut hidapi::HidApi, want: &KeypadFaces) {
         if Instant::now() < self.next_probe {
             return;
@@ -158,12 +176,15 @@ impl KeypadPainter {
             self.next_probe = Instant::now() + RETRY;
             return;
         }
-        for (i, face) in want.iter().enumerate() {
+        let resolved: [Face; KEY_COUNT] = match &self.screen {
+            Screen::Agents => std::array::from_fn(|i| want[i].face(&mut self.icons)),
+            Screen::Utility(page) => page.faces(),
+        };
+        for (i, face) in resolved.iter().enumerate() {
             if self.last[i].as_ref() == Some(face) {
                 continue;
             }
-            let tile = match render::render_tile(&face.face(&mut self.icons), geometry_key_size())
-            {
+            let tile = match render::render_tile(face, geometry_key_size()) {
                 Ok(tile) => tile,
                 Err(_) => continue,
             };
@@ -187,7 +208,9 @@ impl KeypadPainter {
     }
 
     /// Take the keypad over: acquire the claim, wait for mx-keypad to yield,
-    /// then open it. `false` means try again later.
+    /// then open it and take the page buttons over, so they flip between our
+    /// two pages instead of whatever the firmware would otherwise do.
+    /// `false` means try again later.
     fn open(&mut self, api: &mut hidapi::HidApi) -> bool {
         if self.claim.is_none() {
             self.claim = Claim::acquire("tmux-legion").ok();
@@ -198,7 +221,8 @@ impl KeypadPainter {
         }
         let _ = api.refresh_devices();
         match Keypad::open(api) {
-            Ok(Some(keypad)) => {
+            Ok(Some(mut keypad)) => {
+                let _ = keypad.divert_page_buttons(true);
                 self.keypad = Some(keypad);
                 self.configured = true;
                 true
@@ -207,9 +231,11 @@ impl KeypadPainter {
         }
     }
 
-    /// Read key presses without blocking; empty when nothing has come in.
-    /// `mx_keypad::Button::Key(n)` is the only kind this returns, since the
-    /// keypad's two page buttons aren't diverted here.
+    /// Read key and page-button presses without blocking. A page button
+    /// flips `screen`; a grid key either focuses that slot's agent (on the
+    /// agent page, returned here for the caller to act on) or runs its own
+    /// config's action on press and lets go of a held shift on release (on
+    /// the utility page, both handled on the spot).
     pub fn poll_presses(&mut self) -> Vec<u8> {
         let Some(keypad) = self.keypad.as_mut() else {
             return Vec::new();
@@ -217,13 +243,32 @@ impl KeypadPainter {
         let Ok(events) = keypad.poll(Duration::ZERO) else {
             return Vec::new();
         };
-        events
-            .into_iter()
-            .filter_map(|event| match event {
-                mx_keypad::Event::Down(mx_keypad::Button::Key(n)) => Some(n),
-                _ => None,
-            })
-            .collect()
+        let mut focus = Vec::new();
+        for event in events {
+            match event {
+                Event::Down(Button::Key(n)) => match &mut self.screen {
+                    Screen::Agents => focus.push(n),
+                    Screen::Utility(page) => page.press(n),
+                },
+                Event::Up(Button::Key(n)) => {
+                    if let Screen::Utility(page) = &mut self.screen {
+                        page.release(n);
+                    }
+                }
+                Event::Down(Button::PageLeft | Button::PageRight) => self.flip_page(),
+                _ => {}
+            }
+        }
+        focus
+    }
+
+    /// Switch pages. The utility page is loaded once and kept, not reloaded
+    /// on every flip, so a shift toggle survives switching away and back.
+    fn flip_page(&mut self) {
+        self.screen = match &self.screen {
+            Screen::Agents => Screen::Utility(Box::new(UtilityPage::load())),
+            Screen::Utility(_) => Screen::Agents,
+        };
     }
 
     /// Blank the keys and drop the device, releasing the claim so mx-keypad
@@ -236,6 +281,7 @@ impl KeypadPainter {
         self.configured = false;
         self.claim = None;
         self.last = [const { None }; KEY_COUNT];
+        self.screen = Screen::Agents;
     }
 
     /// Forget the board and repaint at the next opportunity, same as waking
@@ -358,7 +404,11 @@ mod tests {
             std::thread::sleep(Duration::from_millis(200));
         }
         assert!(painter.configured, "keypad never opened");
-        assert_eq!(painter.last[0], Some(faces[0].clone()), "key 1 not painted");
+        assert_eq!(
+            painter.last[0],
+            Some(faces[0].face(&mut IconCache::new(None))),
+            "key 1 not painted"
+        );
         painter.blank();
     }
 }

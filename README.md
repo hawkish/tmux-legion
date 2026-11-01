@@ -53,6 +53,11 @@ hook to hang it on:
 - **Copilot CLI** has neither, so the reconciler reads the pane's visible screen: an
   "esc to cancel" hint on its own means working, that hint *plus* an "enter to select"
   prompt means blocked, and no cancel hint means idle.
+- **OpenCode** also has neither: the reconciler reads its footer and permission dialog.
+  The "esc interrupt" hint means working, the permission dialog ("Permission required",
+  "Allow once", "Always allow", "Reject permission") means blocked, and neither means
+  idle. The footer's status line (`Build · Claude Sonnet 5 GitHub Copilot`) also gives its
+  model, provider name stripped where recognized.
 - **Everything else** (aider, ...) reports for itself with
   `tmux-legion report working|blocked|done`, guided by the bundled [SKILL.md](SKILL.md).
 
@@ -198,8 +203,11 @@ blinking key looks exactly like an empty slot. That's a side effect of the dimmi
 below. Blinking is also the only thing that puts the keyboard under steady USB traffic:
 two writes a second while anything is working or blocked, none once everything settles.
 
-Slots are sticky. An agent keeps its key until its pane goes away. A freed key passes to
-the oldest agent that doesn't have one, and the fifth agent onward gets no key.
+Slots are assigned left to right, consecutively: the oldest agent is always key 1, the next
+oldest key 2, and so on, with no gaps. When an older agent's pane goes away, everyone still
+running shifts down to close the hole it left—an agent's key can therefore move, but the
+filled keys always read left to right with nothing dark in between. The fifth agent onward
+(ninth, with the MX Creative Keypad) gets no key.
 
 #### Setup, once
 
@@ -290,9 +298,15 @@ moment—the two hand it back and forth automatically (see below). The keypad's 
 cover slots 1–9, so a fifth agent onward, which the Keychron has no room for, still gets
 a key here; the first four slots light up on both devices at once if you have both.
 
-Each key shows the agent's status color as its background and the agent's icon, found by
-name in the folder `@legion_keypad_icons` points at (`<name>.png`, `.svg`, or `.jpg`;
-first match wins), falling back to a generic terminal icon for agents with no file.
+Each key shows the agent's status color as its background and an icon picked by **model, not
+launcher**: a session running Claude shows the Claude icon whether it's Claude Code, opencode,
+or Copilot CLI running it, and a GPT or `o`-series reasoning model shows the OpenAI one, by
+matching known names inside whatever model label is known (from hooks, `report --model`, a
+`--model`/`-m` launch flag, or screen detection for Codex and opencode). An agent with no
+known model falls back to its own name—which is how `claude` and `codex` entries show their
+own icon by default, before any model is known. Either way, the icon is found by that name in
+the folder `@legion_keypad_icons` points at (`<name>.png`, `.svg`, or `.jpg`; first match
+wins), falling back to a generic terminal icon when nothing matches.
 Working and blocked keys blink the same 1 Hz as the Keychron, but since the keypad has a
 screen rather than a single LED, the icon stays up through the dim half of the blink—only
 the background goes black—so the slot never becomes indistinguishable from an empty one.
@@ -303,6 +317,20 @@ agent's pane, same as a Keychron slot key.
 doesn't want tmux-legion driving it. [`icons/agents/`](icons/agents/) ships example icons
 for `claude`, `codex`, and `copilot`; point `@legion_keypad_icons` at a copy of that folder
 (or your own) to use them.
+
+#### A second page: your own mx-keypad config
+
+The keypad's two page buttons flip between the agent view above and a second page: your own
+`mx-keypad` config (`~/.config/mx-keypad/config.json` or `$XDG_CONFIG_HOME/mx-keypad/config.json`),
+loaded once when tmux-legion takes the keypad over. This is the same
+[`mx_keypad::session::Session`](https://github.com/hawkish/mx-keypad#running-a-config) that
+`mx-keypad run` itself is built on, so every key, shortcut, shift, hold, switch, sequence, long
+press and blink your config defines works exactly the same here — tmux-legion doesn't
+reimplement any of it, only loads the config and forwards the keypad's presses to it. A config
+edit needs the sidebar reopened to pick it up, and only the config's first page is reachable
+this way. `@legion_keypad_icons` is unrelated to this page — it only picks agent icons on the
+other one; this page's icons come from the config itself, exactly as `mx-keypad run` resolves
+them.
 
 #### The hand-over
 
