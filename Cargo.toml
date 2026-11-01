@@ -12,7 +12,7 @@ clap = { version = "4", features = ["derive"] }
 # The MX Creative Keypad backend. hidapi stays one shared crate with it below:
 # both need the same per-OS features, since hidapi allows one `HidApi` per
 # process.
-mx-keypad = { git = "https://github.com/hawkish/mx-keypad", tag = "v0.7.1" }
+mx-keypad = { git = "https://github.com/hawkish/mx-keypad", tag = "v0.7.2" }
 ratatui = "0.29"
 rustix = { version = "1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }
