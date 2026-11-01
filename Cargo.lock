@@ -369,7 +369,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -709,8 +709,8 @@ dependencies = [
 
 [[package]]
 name = "mx-keypad"
-version = "0.7.0"
-source = "git+https://github.com/hawkish/mx-keypad?tag=v0.7.0#6419946dc088e1891b70cbd612d9ee71a980ce04"
+version = "0.7.1"
+source = "git+https://github.com/hawkish/mx-keypad?tag=v0.7.1#18602414f0b7d68cda3ae6dbd06c2b39c36fac79"
 dependencies = [
  "anyhow",
  "clap",
@@ -951,7 +951,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
