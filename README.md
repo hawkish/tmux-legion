@@ -90,7 +90,7 @@ sidebar redraws on a SIGUSR1 poke.
 
 ```nix
 # Pin to a release tag (recommended); drop the ref to track the default branch.
-inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.7.3";
+inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.8.0";
 ```
 
 The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmuxPlugin`
@@ -293,7 +293,7 @@ is the backlight switch, not a color. Keep the floor on this hardware.
 ### MX Creative Keypad
 
 tmux-legion can also drive a Logitech MX Creative Keypad through
-[mx-keypad](https://github.com/hawkish/mx-keypad)'s own agent (`mx-keypad run`, v0.7.0 or
+[mx-keypad](https://github.com/hawkish/mx-keypad)'s own agent (`mx-keypad run`, v0.7.2 or
 later), which keeps the keypad the whole time. tmux-legion adds an **agents** page to it over
 the agent's socket, next to your own mx-keypad pages. The keypad's nine keys
 cover slots 1–9, so a fifth agent onward, which the Keychron has no room for, still gets
