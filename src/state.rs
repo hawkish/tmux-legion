@@ -514,7 +514,12 @@ mod tests {
 
     #[test]
     fn slots_follow_the_sidebars_top_to_bottom_order() {
-        let mut agents = registry(&[("%3", "s", 3), ("%1", "s", 1), ("%4", "s", 4), ("%2", "s", 2)]);
+        let mut agents = registry(&[
+            ("%3", "s", 3),
+            ("%1", "s", 1),
+            ("%4", "s", 4),
+            ("%2", "s", 2),
+        ]);
         assign_slots(&mut agents);
         assert_eq!(slots(&agents, "%1"), Some(1));
         assert_eq!(slots(&agents, "%2"), Some(2));
@@ -600,7 +605,11 @@ mod tests {
         agents.remove("%1");
         assign_slots(&mut agents);
 
-        assert_eq!(slots(&agents, "%2"), Some(1), "shifted down to close the gap");
+        assert_eq!(
+            slots(&agents, "%2"),
+            Some(1),
+            "shifted down to close the gap"
+        );
         assert_eq!(slots(&agents, "%3"), Some(2));
         assert_eq!(slots(&agents, "%4"), Some(3));
         assert_eq!(

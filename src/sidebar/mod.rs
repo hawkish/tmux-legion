@@ -430,7 +430,10 @@ mod tests {
     #[test]
     fn keypad_faces_place_agents_on_their_own_slot() {
         let faces = keypad_faces(&[entry("%1", Status::Working, Some(6))], true);
-        assert_eq!(faces[5], keyboard::agent_face(palette::WORKING, "claude", false));
+        assert_eq!(
+            faces[5],
+            keyboard::agent_face(palette::WORKING, "claude", false)
+        );
         assert_eq!(faces[0], keyboard::empty_face());
         assert_eq!(faces[8], keyboard::empty_face());
     }

@@ -102,7 +102,8 @@ mod tests {
 
     #[test]
     fn working_while_a_turn_runs() {
-        let screen = "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt     ↓ 2 shells · 325.0K (32%) · $8.91  ctrl+p commands";
+        let screen =
+            "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt     ↓ 2 shells · 325.0K (32%) · $8.91  ctrl+p commands";
         assert_eq!(status(screen), Some(Status::Working));
     }
 
@@ -123,7 +124,8 @@ mod tests {
         let screen = "Build · Claude Sonnet 5 GitHub Copilot\n╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n";
         assert_eq!(detect(screen).model.as_deref(), Some("Claude Sonnet 5"));
 
-        let screen = " ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt\nBuild · GPT-6 Astra OpenAI\n╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n";
+        let screen =
+            " ⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt\nBuild · GPT-6 Astra OpenAI\n╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n";
         assert_eq!(detect(screen).model.as_deref(), Some("GPT-6 Astra"));
     }
 
