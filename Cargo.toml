@@ -9,6 +9,10 @@ repository = "https://github.com/hawkish/tmux-legion"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+# The MX Creative Keypad backend. hidapi stays one shared crate with it below:
+# both need the same per-OS features, since hidapi allows one `HidApi` per
+# process.
+mx-keypad = { git = "https://github.com/hawkish/mx-keypad", tag = "v0.5.0" }
 ratatui = "0.29"
 rustix = { version = "1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }

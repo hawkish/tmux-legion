@@ -2,7 +2,7 @@ mod app;
 mod theme;
 mod ui;
 
-use crate::keyboard::{palette, Leds, SlotColors, SLOT_COUNT};
+use crate::keyboard::{self, palette, Leds, SlotColors, SLOT_COUNT};
 use crate::power::{self, Power};
 use crate::state::{self, AgentEntry, Store};
 use crate::status::Status;
@@ -118,6 +118,34 @@ fn slot_colors(entries: &[AgentEntry], lit: bool) -> SlotColors {
     colors
 }
 
+/// The face each MX Creative Keypad key (1–9) should show. Keys past the
+/// Keychron's four are the only place slots 5-9 ever render, so every agent
+/// still gets a key — nothing past slot 9 does.
+///
+/// Unlike the Keychron's single colour per key, the keypad can show the
+/// agent's icon too, so a blink dims to black rather than disappearing to the
+/// empty-slot floor: the slot stays identifiable through the blink.
+fn keypad_faces(entries: &[AgentEntry], lit: bool) -> keyboard::KeypadFaces {
+    let mut faces = std::array::from_fn(|_| keyboard::empty_face());
+    for entry in entries {
+        let Some(slot) = entry.slot else { continue };
+        let Some(cell) = (slot as usize)
+            .checked_sub(1)
+            .and_then(|i| faces.get_mut(i))
+        else {
+            continue;
+        };
+        let background = if entry.exited_at.is_some() {
+            palette::UNKNOWN
+        } else {
+            palette::status_color(entry.status)
+        };
+        let dimmed = entry.exited_at.is_none() && blinks(entry) && !lit;
+        *cell = keyboard::agent_face(background, &entry.name, dimmed);
+    }
+    faces
+}
+
 fn event_loop(
     terminal: &mut ratatui::DefaultTerminal,
     store: &Store,
@@ -220,8 +248,20 @@ fn event_loop(
         // frame costs one comparison per slot and no USB traffic. Deliberately
         // not in the draw path — the spinner advances every iteration, and the
         // keys must not flicker with it.
-        leds.render(slot_colors(&app.entries, blink_lit(started.elapsed())));
+        let lit = blink_lit(started.elapsed());
+        leds.render(keyboard::Frame {
+            leds: slot_colors(&app.entries, lit),
+            keypad: Some(keypad_faces(&app.entries, lit)),
+        });
         app.led_warning = leds.warning().is_some();
+
+        // Presses from the MX Creative Keypad, if the backend found one: the
+        // same jump a Keychron slot key does, just arriving over a channel
+        // instead of a terminal key event (the keypad never has terminal
+        // focus).
+        for slot in leds.take_presses() {
+            app.focus_slot(slot);
+        }
     }
 }
 
@@ -348,5 +388,46 @@ mod tests {
         assert_eq!(left(400), Duration::from_millis(100));
         assert_eq!(left(500), BLINK_PHASE);
         assert_eq!(left(900), Duration::from_millis(100));
+    }
+
+    /// Slots past the Keychron's four are the only place 5-9 ever render, and
+    /// an empty one is a plain dark key, same shape as `slot_colors`.
+    #[test]
+    fn keypad_faces_place_agents_on_their_own_slot() {
+        let faces = keypad_faces(&[entry("%1", Status::Working, Some(6))], true);
+        assert_eq!(faces[5], keyboard::agent_face(palette::WORKING, "claude", false));
+        assert_eq!(faces[0], keyboard::empty_face());
+        assert_eq!(faces[8], keyboard::empty_face());
+    }
+
+    /// Unlike the Keychron, a blinking keypad key keeps its icon and only the
+    /// background goes dark, so the slot stays identifiable through the blink.
+    #[test]
+    fn keypad_faces_dim_rather_than_empty_on_the_unlit_phase() {
+        let one = [entry("%1", Status::Blocked, Some(3))];
+        assert_eq!(
+            keypad_faces(&one, true)[2],
+            keyboard::agent_face(palette::BLOCKED, "claude", false)
+        );
+        assert_eq!(
+            keypad_faces(&one, false)[2],
+            keyboard::agent_face(palette::BLOCKED, "claude", true)
+        );
+    }
+
+    /// An exited agent shows violet without blinking, same as the Keychron.
+    #[test]
+    fn keypad_faces_show_exited_agents_as_unknown_and_steady() {
+        let mut e = entry("%1", Status::Working, Some(1));
+        e.exited_at = Some(crate::state::now());
+        let one = [e];
+        assert_eq!(
+            keypad_faces(&one, true)[0],
+            keyboard::agent_face(palette::UNKNOWN, "claude", false)
+        );
+        assert_eq!(
+            keypad_faces(&one, false)[0],
+            keyboard::agent_face(palette::UNKNOWN, "claude", false)
+        );
     }
 }

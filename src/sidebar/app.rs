@@ -171,7 +171,7 @@ impl App {
         }
     }
 
-    fn focus_slot(&self, slot: u8) -> Outcome {
+    pub(super) fn focus_slot(&self, slot: u8) -> Outcome {
         if let Some(entry) = self.entries.iter().find(|e| e.slot == Some(slot)) {
             let _ = tmux::select_pane(&entry.pane_id);
         }

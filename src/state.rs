@@ -21,8 +21,11 @@ const SHELLS: &[&str] = &[
 
 const DEFAULT_AGENTS: &str = "claude,copilot,codex,opencode,aider,timtoo";
 
-/// Agents beyond this many get no keyboard slot.
-const SLOT_COUNT: u8 = crate::keyboard::SLOT_COUNT as u8;
+/// Agents beyond this many get no keyboard slot: the Keychron's four keys plus
+/// the MX Creative Keypad's nine, whichever is connected. Separate from
+/// `keyboard::SLOT_COUNT` (4, the Keychron alone) so an agent keeps the same
+/// slot number on both devices — the first four still land on the Keychron.
+const SLOT_COUNT: u8 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentEntry {
@@ -556,15 +559,17 @@ mod tests {
 
     #[test]
     fn agents_past_the_last_slot_get_none() {
-        let mut agents = registry(&[
-            ("%1", 100),
-            ("%2", 200),
-            ("%3", 300),
-            ("%4", 400),
-            ("%5", 500),
-        ]);
+        let mut agents: BTreeMap<String, AgentEntry> = (1..=SLOT_COUNT + 1)
+            .map(|n| {
+                let pane = format!("%{n}");
+                let mut e = AgentEntry::new(&pane, "claude", Status::Working, Source::Hook);
+                e.first_seen = u64::from(n) * 100;
+                (pane, e)
+            })
+            .collect();
         assign_slots(&mut agents);
-        assert_eq!(slots(&agents, "%5"), None);
+        let last = format!("%{}", SLOT_COUNT + 1);
+        assert_eq!(slots(&agents, &last), None);
     }
 
     /// first_seen has one-second granularity and agents spawned together tie,
@@ -611,20 +616,22 @@ mod tests {
 
     #[test]
     fn a_freed_slot_is_reused_by_the_oldest_unslotted_agent() {
-        let mut agents = registry(&[
-            ("%1", 100),
-            ("%2", 200),
-            ("%3", 300),
-            ("%4", 400),
-            ("%5", 500),
-        ]);
+        let mut agents: BTreeMap<String, AgentEntry> = (1..=SLOT_COUNT + 1)
+            .map(|n| {
+                let pane = format!("%{n}");
+                let mut e = AgentEntry::new(&pane, "claude", Status::Working, Source::Hook);
+                e.first_seen = u64::from(n) * 100;
+                (pane, e)
+            })
+            .collect();
         assign_slots(&mut agents);
-        assert_eq!(slots(&agents, "%5"), None);
+        let last = format!("%{}", SLOT_COUNT + 1);
+        assert_eq!(slots(&agents, &last), None);
 
         agents.remove("%1");
         assign_slots(&mut agents);
 
-        assert_eq!(slots(&agents, "%5"), Some(1), "slot 1 should be reused");
+        assert_eq!(slots(&agents, &last), Some(1), "slot 1 should be reused");
         assert_eq!(slots(&agents, "%2"), Some(2), "and nobody else moves");
         assert_eq!(slots(&agents, "%3"), Some(3));
         assert_eq!(slots(&agents, "%4"), Some(4));

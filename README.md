@@ -282,6 +282,39 @@ keyboard can store a dark color per key. A Q0 Max can't, as far as testing shows
 `000000` in Launcher's per-key editor renders white, and the effect list's "none" entry
 is the backlight switch, not a color. Keep the floor on this hardware.
 
+### MX Creative Keypad
+
+tmux-legion can also drive a Logitech MX Creative Keypad, if one is plugged in and not
+held by [mx-keypad](https://github.com/hawkish/mx-keypad)'s own LaunchAgent at the
+moment—the two hand it back and forth automatically (see below). The keypad's nine keys
+cover slots 1–9, so a fifth agent onward, which the Keychron has no room for, still gets
+a key here; the first four slots light up on both devices at once if you have both.
+
+Each key shows the agent's status color as its background and the agent's icon, found by
+name in the folder `@legion_keypad_icons` points at (`<name>.png`, `.svg`, or `.jpg`;
+first match wins), falling back to a generic terminal icon for agents with no file.
+Working and blocked keys blink the same 1 Hz as the Keychron, but since the keypad has a
+screen rather than a single LED, the icon stays up through the dim half of the blink—only
+the background goes black—so the slot never becomes indistinguishable from an empty one.
+An exited agent shows violet, steady, same as the Keychron. Pressing a key jumps to that
+agent's pane, same as a Keychron slot key.
+
+`@legion_keypad off` disables the keypad backend entirely, for a machine that has one but
+doesn't want tmux-legion driving it. [`icons/agents/`](icons/agents/) ships example icons
+for `claude`, `codex`, and `copilot`; point `@legion_keypad_icons` at a copy of that folder
+(or your own) to use them.
+
+#### The hand-over
+
+macOS opens the keypad exclusively, so mx-keypad's LaunchAgent and tmux-legion's sidebar
+take turns rather than fighting over it. Each side takes a small claim file
+(`$XDG_STATE_HOME/mx-keypad/claim`) naming itself and its pid before it opens the device,
+and watches for the other side's claim before every attempt of its own. Opening the
+sidebar makes mx-keypad notice tmux-legion's claim, drop the keypad without clearing it,
+and wait; closing the sidebar releases tmux-legion's claim and mx-keypad takes the keypad
+back and redraws your own page. A claim left behind by a process that was killed expires
+on its own—the pid is checked before anyone trusts it.
+
 ### Spawning agents
 
 `spawn` splits a pane, runs the command in it, tags it, and prints the new pane id.
@@ -337,6 +370,8 @@ finished or errored before you could read it. Turn `remain-on-exit` on to see wh
 | `@legion_led_effect` | `23` | keyboard lighting effect to switch to, or `keep` to leave it alone |
 | `@legion_led_brightness` | unset | force the global backlight to this level; unset leaves it alone |
 | `@legion_led_floor` | `on` | `keep`, `off`, or `no` skips the floor, leaving your own per-key colors in place |
+| `@legion_keypad` | `on` | `off` or `no` disables the MX Creative Keypad backend |
+| `@legion_keypad_icons` | unset | folder of per-agent icon files (`<name>.png`/`.svg`/`.jpg`); unset uses the built-in fallback for everyone |
 
 ## Development
 

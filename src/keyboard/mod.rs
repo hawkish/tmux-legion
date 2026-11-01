@@ -13,13 +13,17 @@
 
 mod color;
 mod device;
+mod keypad;
 pub mod palette;
 
 pub use color::{rgb_to_hsv, Rgb};
+pub use keypad::{agent_face, empty_face, KeypadFaces};
 
 use crate::tmux;
 use anyhow::{Context, Result};
 use device::Device;
+use keypad::KeypadPainter;
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -32,9 +36,22 @@ pub const SLOT_COUNT: usize = 4;
 /// runs (see `Painter::apply`).
 pub const SLOT_LEDS: [u8; SLOT_COUNT] = [15, 16, 17, 19];
 
-/// The physical key each slot lives on. Shown in the sidebar, since that is
-/// what the user presses — the slot number itself is an implementation detail.
+/// The physical key each Keychron slot (1–4) lives on. Shown in the sidebar,
+/// since that is what the user presses — the slot number itself is an
+/// implementation detail.
 pub const SLOT_KEYS: [char; SLOT_COUNT] = ['4', '5', '6', '1'];
+
+/// The key a slot (1–9) shows in the sidebar: the Keychron key for slots 1–4,
+/// or the MX Creative Keypad's own key number for slots 5–9. Indexing
+/// `SLOT_KEYS[slot - 1]` directly would panic past slot 4, so this is the
+/// only way callers should read either.
+pub fn slot_label(slot: u8) -> Option<char> {
+    match slot {
+        1..=4 => SLOT_KEYS.get(usize::from(slot) - 1).copied(),
+        5..=9 => char::from_digit(u32::from(slot), 10),
+        _ => None,
+    }
+}
 
 /// How long to wait before looking for a keyboard that wasn't there.
 const RETRY: Duration = Duration::from_secs(5);
@@ -47,8 +64,16 @@ const DEFAULT_BRIGHTNESS: u8 = 0x80;
 /// What to write to a slot's key.
 pub type SlotColors = [Rgb; SLOT_COUNT];
 
+/// One frame for both devices: the Keychron's four LED slots, and, when the
+/// keypad backend is on, the MX Creative Keypad's nine key faces.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frame {
+    pub leds: SlotColors,
+    pub keypad: Option<KeypadFaces>,
+}
+
 /// What the keyboard should be set to, read once from tmux options.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Config {
     /// Effect to force, or `None` to leave the keyboard's own alone.
     effect: Option<u8>,
@@ -62,6 +87,14 @@ struct Config {
     /// how you get a genuinely dark board: set the keys black in Launcher once
     /// and tmux-legion only ever lights the agents.
     floor: bool,
+    /// Whether to also take over the MX Creative Keypad, if one yields to us.
+    /// Defaults to on; `@legion_keypad off` disables it for machines that
+    /// have one but don't want tmux-legion driving it.
+    keypad_enabled: bool,
+    /// Folder of per-agent icon files (`<name>.png`/`.svg`/`.jpg`), read from
+    /// `@legion_keypad_icons`. `None` uses the built-in fallback for every
+    /// agent.
+    keypad_icons: Option<PathBuf>,
 }
 
 impl Config {
@@ -80,6 +113,11 @@ impl Config {
                 tmux::get_option("@legion_led_floor").as_deref(),
                 Some("keep") | Some("off") | Some("no")
             ),
+            keypad_enabled: !matches!(
+                tmux::get_option("@legion_keypad").as_deref(),
+                Some("off") | Some("no")
+            ),
+            keypad_icons: tmux::get_option("@legion_keypad_icons").map(PathBuf::from),
         }
     }
 }
@@ -93,7 +131,7 @@ impl Config {
 /// keyboard fall arbitrarily far behind the sidebar.
 #[derive(Default)]
 struct Pending {
-    want: Option<SlotColors>,
+    want: Option<Frame>,
     quit: bool,
     /// Blank the keys and say when it's done: the machine is waiting to sleep.
     sleep: bool,
@@ -108,6 +146,10 @@ struct Mailbox {
     ready: Condvar,
     /// Worker to caller, for the one operation that can't be fire-and-forget.
     done: Condvar,
+    /// Keypad key presses the worker has decoded, waiting for the sidebar to
+    /// collect them. A `Vec` rather than an `mpsc` channel so one lock covers
+    /// both directions of this handle, same as `pending`.
+    presses: Mutex<Vec<u8>>,
 }
 
 /// How long `sleep` waits for the keys to go dark.
@@ -116,6 +158,11 @@ struct Mailbox {
 /// roughly 30 seconds macOS allows — a keyboard that stopped answering must not
 /// turn into a Mac that won't sleep.
 const BLANK_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How often the worker wakes on its own, with nothing pending, to poll the
+/// MX Creative Keypad for presses between frames. Only paid while the keypad
+/// backend is on; everyone else keeps the plain, wake-on-notify loop.
+const KEYPAD_POLL: Duration = Duration::from_millis(50);
 
 /// A handle on the device thread. Cheap to call: `render` takes a lock, stores
 /// a frame and returns, so the terminal never waits on USB.
@@ -136,6 +183,7 @@ impl Leds {
             pending: Mutex::new(Pending::default()),
             ready: Condvar::new(),
             done: Condvar::new(),
+            presses: Mutex::new(Vec::new()),
         });
         let warning = Arc::new(Mutex::new(None));
 
@@ -157,7 +205,7 @@ impl Leds {
 
     /// Hand the worker the frame to paint. Latest wins; an unchanged frame is
     /// discarded on the far side by `Painter::render`.
-    pub fn render(&mut self, want: SlotColors) {
+    pub fn render(&mut self, want: Frame) {
         let Ok(mut pending) = self.mailbox.pending.lock() else {
             return; // worker panicked; nothing to be done from here
         };
@@ -169,6 +217,16 @@ impl Leds {
     /// no Keychron attached, which is most of them.
     pub fn warning(&self) -> Option<String> {
         self.warning.lock().ok().and_then(|w| w.clone())
+    }
+
+    /// Keypad key presses decoded since the last call, 1–9, oldest first.
+    /// Empty when the keypad backend is off, not found, or nothing was
+    /// pressed.
+    pub fn take_presses(&mut self) -> Vec<u8> {
+        let Ok(mut presses) = self.mailbox.presses.lock() else {
+            return Vec::new();
+        };
+        std::mem::take(&mut presses)
     }
 
     /// Blank the keys for a system sleep, and wait until they are.
@@ -237,7 +295,7 @@ enum Action {
     Quit,
     Sleep,
     Wake,
-    Paint(SlotColors),
+    Paint(Box<Frame>),
 }
 
 /// Pick the next thing to do, or `None` to keep waiting.
@@ -257,11 +315,15 @@ fn take_action(pending: &mut Pending) -> Option<Action> {
         pending.wake = false;
         return Some(Action::Wake);
     }
-    pending.want.take().map(Action::Paint)
+    pending.want.take().map(Box::new).map(Action::Paint)
 }
 
 fn paint_loop(config: Config, mailbox: &Mailbox, warning: &Mutex<Option<String>>) {
-    let mut painter = Painter::new(config);
+    let mut painter = Painter::new(config.clone());
+    // Only the keypad backend needs to be woken on its own: it has presses to
+    // poll between frames. Everyone else keeps sleeping until a frame, sleep,
+    // wake or quit actually arrives.
+    let poll = config.keypad_enabled.then_some(KEYPAD_POLL);
     loop {
         let action = {
             let Ok(mut pending) = mailbox.pending.lock() else {
@@ -269,23 +331,38 @@ fn paint_loop(config: Config, mailbox: &Mailbox, warning: &Mutex<Option<String>>
             };
             loop {
                 if let Some(action) = take_action(&mut pending) {
-                    break action;
+                    break Some(action);
                 }
-                let Ok(next) = mailbox.ready.wait(pending) else {
-                    return;
+                pending = match poll {
+                    Some(timeout) => {
+                        let Ok((next, timed_out)) = mailbox.ready.wait_timeout(pending, timeout)
+                        else {
+                            return;
+                        };
+                        if timed_out.timed_out() {
+                            break None;
+                        }
+                        next
+                    }
+                    None => {
+                        let Ok(next) = mailbox.ready.wait(pending) else {
+                            return;
+                        };
+                        next
+                    }
                 };
-                pending = next;
             }
         };
 
         // Outside the lock: a batch takes milliseconds and `render` must never
         // block behind it.
         match action {
-            Action::Quit => {
+            None => {} // the poll interval elapsed; fall through to the presses check below
+            Some(Action::Quit) => {
                 painter.shutdown();
                 return;
             }
-            Action::Sleep => {
+            Some(Action::Sleep) => {
                 painter.sleep();
                 // Only now is it safe for the machine to suspend.
                 if let Ok(mut pending) = mailbox.pending.lock() {
@@ -293,12 +370,19 @@ fn paint_loop(config: Config, mailbox: &Mailbox, warning: &Mutex<Option<String>>
                 }
                 mailbox.done.notify_all();
             }
-            Action::Wake => painter.wake(),
-            Action::Paint(want) => {
-                painter.render(want);
+            Some(Action::Wake) => painter.wake(),
+            Some(Action::Paint(want)) => {
+                painter.render(*want);
                 if let Ok(mut slot) = warning.lock() {
                     *slot = painter.warning().map(str::to_string);
                 }
+            }
+        }
+
+        let presses = painter.poll_keypad_presses();
+        if !presses.is_empty() {
+            if let Ok(mut queued) = mailbox.presses.lock() {
+                queued.extend(presses);
             }
         }
     }
@@ -321,6 +405,9 @@ struct Painter {
     /// Keychron plugged in" — the normal case for everyone else — and must
     /// stay silent.
     seen_device: bool,
+    /// The MX Creative Keypad backend, when `@legion_keypad` is on. Shares
+    /// `api`, since hidapi allows one `HidApi` per process.
+    keypad: Option<KeypadPainter>,
 }
 
 impl Painter {
@@ -331,6 +418,9 @@ impl Painter {
             Ok(api) => (Some(api), None),
             Err(e) => (None, Some(format!("hidapi unavailable: {e}"))),
         };
+        let keypad = config
+            .keypad_enabled
+            .then(|| KeypadPainter::new(config.keypad_icons.clone()));
         Painter {
             api,
             last: [None; SLOT_COUNT],
@@ -339,6 +429,7 @@ impl Painter {
             next_probe: Instant::now(),
             last_error,
             seen_device: false,
+            keypad,
         }
     }
 
@@ -348,12 +439,19 @@ impl Painter {
             .flatten()
     }
 
-    /// Paint the slot keys, if any of them changed. Safe to call for every
-    /// frame the sidebar produces: an unchanged one is one comparison per slot
-    /// and touches no USB at all, which is what keeps a board of settled agents
-    /// silent.
-    fn render(&mut self, want: SlotColors) {
-        let changed = (0..SLOT_COUNT).any(|i| self.last[i] != Some(want[i]));
+    /// Paint the Keychron's slot keys, if any changed, and the MX Creative
+    /// Keypad's faces, if the backend is on. Safe to call for every frame the
+    /// sidebar produces: an unchanged Keychron frame is one comparison per
+    /// slot and touches no USB at all, which is what keeps a board of settled
+    /// agents silent. The keypad does its own, separate change-tracking.
+    fn render(&mut self, want: Frame) {
+        if let (Some(keypad), Some(faces)) = (self.keypad.as_mut(), want.keypad.as_ref()) {
+            if let Some(api) = self.api.as_mut() {
+                keypad.render(api, faces);
+            }
+        }
+
+        let changed = (0..SLOT_COUNT).any(|i| self.last[i] != Some(want.leds[i]));
         if !changed && self.configured {
             return;
         }
@@ -362,10 +460,10 @@ impl Painter {
         }
         self.next_probe = Instant::now() + RETRY;
 
-        debug_log(&format!("apply want={want:?} last={:?}", self.last));
-        match self.apply(&want) {
+        debug_log(&format!("apply want={:?} last={:?}", want.leds, self.last));
+        match self.apply(&want.leds) {
             Ok(()) => {
-                self.last = want.map(Some);
+                self.last = want.leds.map(Some);
                 self.last_error = None;
                 // Nothing failed, so don't sit out the retry window.
                 self.next_probe = Instant::now();
@@ -385,16 +483,23 @@ impl Painter {
     /// Drop the slot keys back to the floor, leaving the whole board one
     /// uniform colour. The effect and brightness stay as we set them — there
     /// is nothing sensible to restore them to, since the stored per-key
-    /// colours they applied to are gone.
+    /// colours they applied to are gone. Also blanks and releases the MX
+    /// Creative Keypad, if the backend is on, so mx-keypad can take it back.
     fn shutdown(&mut self) {
         self.blank("shutdown");
+        if let Some(keypad) = self.keypad.as_mut() {
+            keypad.blank();
+        }
     }
 
     /// Same floor as a quit, for a machine about to suspend. The keyboard keeps
     /// its colours across sleep and the port stays powered, so without this a
-    /// blocked agent glows red until morning.
+    /// blocked agent glows red until morning. Floors the keypad the same way.
     fn sleep(&mut self) {
         self.blank("sleep");
+        if let Some(keypad) = self.keypad.as_mut() {
+            keypad.blank();
+        }
     }
 
     /// Come back from sleep ready to repaint.
@@ -404,7 +509,19 @@ impl Painter {
     /// retry window, so the keys light up on waking rather than seconds later.
     fn wake(&mut self) {
         self.next_probe = Instant::now();
+        if let Some(keypad) = self.keypad.as_mut() {
+            keypad.wake();
+        }
         debug_log("wake");
+    }
+
+    /// Presses decoded from the MX Creative Keypad since the last call, empty
+    /// when the backend is off or no keypad has answered.
+    fn poll_keypad_presses(&mut self) -> Vec<u8> {
+        self.keypad
+            .as_mut()
+            .map(KeypadPainter::poll_presses)
+            .unwrap_or_default()
     }
 
     fn blank(&mut self, why: &str) {
@@ -532,6 +649,11 @@ pub fn cleanup() {
     let Ok(mut api) = hidapi::HidApi::new() else {
         return;
     };
+    cleanup_keychron(&mut api);
+    cleanup_keypad(&mut api);
+}
+
+fn cleanup_keychron(api: &mut hidapi::HidApi) {
     for attempt in 0..CLEANUP_ATTEMPTS {
         if attempt > 0 {
             std::thread::sleep(CLEANUP_BACKOFF);
@@ -539,13 +661,33 @@ pub fn cleanup() {
         if api.refresh_devices().is_err() {
             continue;
         }
-        let Ok(dev) = Device::open(&api) else {
+        let Ok(dev) = Device::open(api) else {
             continue;
         };
         for led in SLOT_LEDS {
             let _ = dev.set_led(led, rgb_to_hsv(palette::OFF));
         }
         let _ = dev.commit();
+        return;
+    }
+}
+
+/// Blank the MX Creative Keypad too, if the dying sidebar had it. Its claim
+/// expires on its own once this process is gone — `claim::foreign`'s pid
+/// check covers that — but the screen itself keeps showing the last frame
+/// until something clears it, same as the Keychron above.
+fn cleanup_keypad(api: &mut hidapi::HidApi) {
+    for attempt in 0..CLEANUP_ATTEMPTS {
+        if attempt > 0 {
+            std::thread::sleep(CLEANUP_BACKOFF);
+        }
+        if api.refresh_devices().is_err() {
+            continue;
+        }
+        let Ok(Some(mut keypad)) = mx_keypad::Keypad::open(api) else {
+            continue;
+        };
+        let _ = keypad.clear();
         return;
     }
 }
@@ -591,6 +733,12 @@ mod tests {
         out
     }
 
+    /// A Keychron-only frame, with no keypad faces: these tests exercise the
+    /// Keychron diffing alone.
+    fn frame(leds: SlotColors) -> Frame {
+        Frame { leds, keypad: None }
+    }
+
     /// A Painter that believes it is already set up, so `render` decides purely
     /// on the diff. Built by hand rather than via `new`, which would open
     /// hidapi — none of these tests want a real device.
@@ -602,11 +750,14 @@ mod tests {
                 effect: None,
                 brightness: Some(DEFAULT_BRIGHTNESS),
                 floor: true,
+                keypad_enabled: false,
+                keypad_icons: None,
             },
             configured: true,
             next_probe: Instant::now(),
             last_error: None,
             seen_device: false,
+            keypad: None,
         }
     }
 
@@ -623,7 +774,7 @@ mod tests {
         let want = colors(palette::IDLE, palette::WORKING, palette::OFF);
         leds.last = want.map(Some);
 
-        leds.render(want);
+        leds.render(frame(want));
 
         assert!(leds.last_error.is_none(), "should not have tried to open");
         assert_eq!(leds.last, want.map(Some));
@@ -635,7 +786,7 @@ mod tests {
         let before = colors(palette::IDLE, palette::WORKING, palette::OFF);
         leds.last = before.map(Some);
 
-        leds.render(colors(palette::IDLE, palette::BLOCKED, palette::OFF));
+        leds.render(frame(colors(palette::IDLE, palette::BLOCKED, palette::OFF)));
 
         // No hidapi, so the attempt fails — but it was made, which is the point.
         assert!(leds.last_error.is_some(), "a change must reach the device");
@@ -648,7 +799,11 @@ mod tests {
         let mut leds = configured_painter();
         leds.last = [Some(palette::IDLE); SLOT_COUNT];
 
-        leds.render(colors(palette::BLOCKED, palette::BLOCKED, palette::BLOCKED));
+        leds.render(frame(colors(
+            palette::BLOCKED,
+            palette::BLOCKED,
+            palette::BLOCKED,
+        )));
 
         assert_eq!(leds.last, [None; SLOT_COUNT]);
         assert!(!leds.configured);
@@ -659,7 +814,7 @@ mod tests {
     #[test]
     fn warning_stays_quiet_until_a_device_is_found() {
         let mut leds = configured_painter();
-        leds.render(colors(palette::BLOCKED, palette::OFF, palette::OFF));
+        leds.render(frame(colors(palette::BLOCKED, palette::OFF, palette::OFF)));
         assert!(leds.last_error.is_some());
         assert_eq!(leds.warning(), None, "no keyboard, no complaint");
 
@@ -730,7 +885,7 @@ mod tests {
     #[test]
     fn quit_outranks_a_pending_sleep_and_frame() {
         let mut pending = Pending {
-            want: Some(colors(palette::BLOCKED, palette::OFF, palette::OFF)),
+            want: Some(frame(colors(palette::BLOCKED, palette::OFF, palette::OFF))),
             quit: true,
             sleep: true,
             wake: true,
@@ -744,7 +899,7 @@ mod tests {
     #[test]
     fn sleep_outranks_a_pending_frame() {
         let mut pending = Pending {
-            want: Some(colors(palette::BLOCKED, palette::OFF, palette::OFF)),
+            want: Some(frame(colors(palette::BLOCKED, palette::OFF, palette::OFF))),
             sleep: true,
             ..Pending::default()
         };
@@ -761,7 +916,7 @@ mod tests {
     #[test]
     fn wake_is_consumed_then_yields_to_the_frame() {
         let mut pending = Pending {
-            want: Some(colors(palette::WORKING, palette::OFF, palette::OFF)),
+            want: Some(frame(colors(palette::WORKING, palette::OFF, palette::OFF))),
             wake: true,
             ..Pending::default()
         };
@@ -795,6 +950,7 @@ mod tests {
                 pending: Mutex::new(Pending::default()),
                 ready: Condvar::new(),
                 done: Condvar::new(),
+                presses: Mutex::new(Vec::new()),
             }),
             warning: Arc::new(Mutex::new(None)),
             worker: None,
@@ -806,11 +962,11 @@ mod tests {
     #[test]
     fn a_new_frame_replaces_the_one_still_waiting() {
         let mut leds = detached_leds();
-        let stale = colors(palette::WORKING, palette::OFF, palette::OFF);
-        let fresh = colors(palette::BLOCKED, palette::OFF, palette::OFF);
+        let stale = frame(colors(palette::WORKING, palette::OFF, palette::OFF));
+        let fresh = frame(colors(palette::BLOCKED, palette::OFF, palette::OFF));
 
         leds.render(stale);
-        leds.render(fresh);
+        leds.render(fresh.clone());
 
         let pending = leds.mailbox.pending.lock().unwrap();
         assert_eq!(pending.want, Some(fresh), "the stale frame must be gone");
@@ -836,7 +992,7 @@ mod tests {
         let mut leds = Leds::new();
         assert!(leds.worker.is_some(), "worker thread did not start");
 
-        leds.render(colors(palette::BLOCKED, palette::OFF, palette::OFF));
+        leds.render(frame(colors(palette::BLOCKED, palette::OFF, palette::OFF)));
 
         let started = Instant::now();
         leds.sleep();
@@ -846,7 +1002,7 @@ mod tests {
         );
 
         leds.wake();
-        leds.render(colors(palette::WORKING, palette::OFF, palette::OFF));
+        leds.render(frame(colors(palette::WORKING, palette::OFF, palette::OFF)));
         leds.shutdown();
 
         assert!(leds.worker.is_none(), "shutdown must consume the handle");
@@ -866,10 +1022,12 @@ mod tests {
             effect: Some(device::DEFAULT_EFFECT),
             brightness: None,
             floor: true,
+            keypad_enabled: false,
+            keypad_icons: None,
         });
         println!("after new(): error={:?}", painter.last_error);
 
-        painter.render(colors(palette::BLOCKED, palette::IDLE, palette::DONE));
+        painter.render(frame(colors(palette::BLOCKED, palette::IDLE, palette::DONE)));
         println!(
             "after render(): configured={} error={:?} last={:?}",
             painter.configured, painter.last_error, painter.last
@@ -937,5 +1095,15 @@ mod tests {
         assert_eq!(parse_u8(" 0x17 "), Some(23));
         assert_eq!(parse_u8("300"), None);
         assert_eq!(parse_u8("nonsense"), None);
+    }
+
+    #[test]
+    fn slot_label_covers_both_devices() {
+        assert_eq!(slot_label(1), Some('4'));
+        assert_eq!(slot_label(4), Some('1'));
+        assert_eq!(slot_label(5), Some('5'));
+        assert_eq!(slot_label(9), Some('9'));
+        assert_eq!(slot_label(0), None);
+        assert_eq!(slot_label(10), None);
     }
 }

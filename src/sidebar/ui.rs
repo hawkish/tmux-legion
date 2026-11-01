@@ -127,14 +127,12 @@ fn render_entries(frame: &mut Frame, app: &mut App, body: Rect) {
                 .fg(theme::SUBTEXT0)
                 .add_modifier(Modifier::BOLD)
         };
-        // The keyboard key that jumps here, labelled by what the user presses
-        // rather than by slot number. Without it, slots silently migrating
-        // between agents would make the LEDs look arbitrary.
-        let key = entry
-            .slot
-            .and_then(|s| (s as usize).checked_sub(1))
-            .and_then(|i| keyboard::SLOT_KEYS.get(i))
-            .copied();
+        // The key that jumps here, labelled by what the user presses rather
+        // than by slot number: `SLOT_KEYS[slot-1]` for the Keychron's four
+        // keys (1-4), and the keypad's own key number for slots 5-9. Without
+        // it, slots silently migrating between agents would make the LEDs
+        // look arbitrary.
+        let key = entry.slot.and_then(keyboard::slot_label);
         let reserved = if key.is_some() { 5 } else { 3 };
         let name = truncate(&entry.name, body.width.saturating_sub(reserved) as usize);
         let mut name_spans = vec![
