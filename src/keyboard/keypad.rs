@@ -24,8 +24,8 @@ pub const KEY_COUNT: usize = 9;
 /// The page's name in the agent's page list.
 const PAGE: &str = "agents";
 
-/// Built-in icon shown for an agent whose name matches nothing in the icons
-/// folder, or when there is no folder configured.
+/// Built-in icon shown for an agent whose name matches neither a file in the
+/// icons folder nor one of mx-keypad's built-ins.
 const FALLBACK_ICON: &str = "square-terminal";
 
 /// What one of the keypad's nine keys shows.
@@ -97,8 +97,9 @@ fn icon_name(icon: &IconSource) -> String {
     }
 }
 
-/// Resolves an agent's name to an icon file in `@legion_keypad_icons`, or the
-/// built-in fallback, and remembers the answer: the folder is read at most
+/// Resolves an agent's name to an icon file in `@legion_keypad_icons`, else
+/// mx-keypad's built-in of that name (`claude`, `codex`, `copilot`), else the
+/// fallback, and remembers the answer: the folder is read at most
 /// once per name per process.
 struct IconCache {
     dir: Option<PathBuf>,
@@ -122,7 +123,10 @@ impl IconCache {
             .as_deref()
             .and_then(|dir| find_icon_file(dir, name))
             .map(IconSource::File)
-            .unwrap_or_else(|| IconSource::Builtin(FALLBACK_ICON.to_string()));
+            .unwrap_or_else(|| {
+                let builtin = render::builtin_icon(name).map_or(FALLBACK_ICON, |_| name);
+                IconSource::Builtin(builtin.to_string())
+            });
         self.cache.insert(name.to_string(), found.clone());
         found
     }
@@ -248,10 +252,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn icon_cache_falls_back_without_a_folder() {
+    fn icon_cache_uses_mx_keypads_agent_icons_without_a_folder() {
         let mut icons = IconCache::new(None);
+        for name in ["claude", "codex", "copilot"] {
+            assert_eq!(icons.resolve(name), IconSource::Builtin(name.to_string()));
+        }
         assert_eq!(
-            icons.resolve("claude"),
+            icons.resolve("nobody"),
             IconSource::Builtin(FALLBACK_ICON.to_string())
         );
     }
@@ -306,7 +313,7 @@ mod tests {
     fn an_agent_face_names_its_icon_for_the_wire() {
         let mut icons = IconCache::new(None);
         let face = agent_face(palette::BLOCKED, "claude", false);
-        assert_eq!(face.face(&mut icons).icon.as_deref(), Some(FALLBACK_ICON));
+        assert_eq!(face.face(&mut icons).icon.as_deref(), Some("claude"));
     }
 
     #[test]

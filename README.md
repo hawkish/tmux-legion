@@ -305,9 +305,10 @@ or Copilot CLI running it, and a GPT or `o`-series reasoning model shows the Ope
 matching known names inside whatever model label is known (from hooks, `report --model`, a
 `--model`/`-m` launch flag, or screen detection for Codex and opencode). An agent with no
 known model falls back to its own name—which is how `claude` and `codex` entries show their
-own icon by default, before any model is known. Either way, the icon is found by that name in
-the folder `@legion_keypad_icons` points at (`<name>.png`, `.svg`, or `.jpg`; first match
-wins), falling back to a generic terminal icon when nothing matches.
+own icon by default, before any model is known. Either way, mx-keypad's built-in icon of that
+name is used—it ships `claude`, `codex`, and `copilot`—unless the folder
+`@legion_keypad_icons` points at has a file by that name (`<name>.png`, `.svg`, or `.jpg`;
+first match wins), falling back to a generic terminal icon when nothing matches.
 Working and blocked keys blink the same 1 Hz as the Keychron, but since the keypad has a
 screen rather than a single LED, the icon stays up through the dim half of the blink—only
 the background goes black—so the slot never becomes indistinguishable from an empty one.
@@ -315,9 +316,7 @@ An exited agent shows violet, steady, same as the Keychron. Pressing a key jumps
 agent's pane, same as a Keychron slot key.
 
 `@legion_keypad off` disables the keypad backend entirely, for a machine that has one but
-doesn't want tmux-legion driving it. [`icons/agents/`](icons/agents/) ships example icons
-for `claude`, `codex`, and `copilot`; point `@legion_keypad_icons` at a copy of that folder
-(or your own) to use them.
+doesn't want tmux-legion driving it.
 
 #### Your own pages
 
@@ -394,7 +393,7 @@ finished or errored before you could read it. Turn `remain-on-exit` on to see wh
 | `@legion_led_brightness` | unset | force the global backlight to this level; unset leaves it alone |
 | `@legion_led_floor` | `on` | `keep`, `off`, or `no` skips the floor, leaving your own per-key colors in place |
 | `@legion_keypad` | `on` | `off` or `no` disables the MX Creative Keypad backend |
-| `@legion_keypad_icons` | unset | folder of per-agent icon files (`<name>.png`/`.svg`/`.jpg`); unset uses the built-in fallback for everyone |
+| `@legion_keypad_icons` | unset | folder of per-agent icon files (`<name>.png`/`.svg`/`.jpg`) that override mx-keypad's built-ins; unset uses the built-ins, then a generic fallback |
 
 ## Development
 
