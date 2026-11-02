@@ -21,14 +21,15 @@
         default = pkgs.rustPlatform.buildRustPackage {
           pname = "tmux-legion";
           inherit version;
-          # Only what cargo consumes: docs/CI/skill commits then don't
-          # invalidate the build.
+          # Only what cargo consumes (keypad.json is include_str!'d into the
+          # binary): docs/CI/skill commits then don't invalidate the build.
           src = nixpkgs.lib.fileset.toSource {
             root = ./.;
             fileset = nixpkgs.lib.fileset.unions [
               ./Cargo.toml
               ./Cargo.lock
               ./src
+              ./keypad/keypad.json
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;

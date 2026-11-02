@@ -1,0 +1,96 @@
+{
+  "defaults": {
+    "background": "#000000",
+    "foreground": "#ffffff",
+    "glyph_scale": 0.55
+  },
+  "pages": [
+    {
+      "name": "page-1",
+      "keys": {
+        "1": {
+          "icon": "x",
+          "label": "Esc",
+          "action": {
+            "keys": "escape"
+          },
+          "background": "#FF0000"
+        },
+        "2": {
+          "icon": "volume-x",
+          "label": "Mute",
+          "action": {
+            "media": "mute"
+          },
+          "background": "#0000FF"
+        },
+        "3": {
+          "icon": "arrow-left",
+          "label": "Backspace",
+          "action": {
+            "keys": "delete"
+          },
+          "background": "#00FF00",
+          "foreground": "#000000"
+        },
+        "4": {
+          "label": "æ",
+          "action": {
+            "text": "æ"
+          }
+        },
+        "5": {
+          "label": "ø",
+          "action": {
+            "text": "ø"
+          }
+        },
+        "6": {
+          "label": "å",
+          "action": {
+            "text": "å"
+          }
+        },
+        "8": {
+          "icon": "chevrons-up",
+          "label": "Shift",
+          "action": {
+            "shift": "hold"
+          },
+          "shifted": {
+            "background": "#FFFF00",
+            "foreground": "#000000"
+          }
+        }
+      }
+    },
+    {
+      "name": "page-2",
+      "keys": {
+        "1": {
+          "icon": "square-x",
+          "label": "/quit",
+          "action": {
+            "text": "/quit"
+          }
+        },
+        "9": {
+          "label": "Enter",
+          "action": {
+            "keys": "return"
+          },
+          "background": "#00FF00",
+          "foreground": "#000000"
+        }
+      }
+    }
+  ],
+  "page_buttons": {
+    "left": {
+      "page": "prev"
+    },
+    "right": {
+      "page": "next"
+    }
+  }
+}

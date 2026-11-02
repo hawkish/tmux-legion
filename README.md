@@ -326,7 +326,11 @@ tmux-legion's own keypad pages live in `~/.config/tmux-legion/keypad.json` (or
 keys, text, shift, long press, and so on. While the sidebar is open, the keypad shows those pages
 and then the agents page, in place of your mx-keypad config's own pages, and the page buttons
 flip through them. Edits to the file show up within a second, without reopening the sidebar; a
-file that doesn't parse leaves the last good pages up.
+file that doesn't parse leaves the last good pages up. If there's no file when the sidebar opens
+(and `@legion_keypad` isn't `off`), tmux-legion writes the starter pages built into it,
+[keypad/keypad.json](keypad/keypad.json)—Escape, mute, backspace, Danish letters, and shift on the
+first page, `/quit` and Enter on the second—for you to edit. It never overwrites a file that's
+there; `{ "pages": [] }` keeps just the agents page.
 
 tmux-legion doesn't perform these keys itself. It sends the pages to mx-keypad's agent, which
 performs every action with its own Accessibility grant, so tmux-legion never needs one. Icons

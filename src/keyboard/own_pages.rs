@@ -8,7 +8,8 @@
 //!
 //! The file is read again whenever it changes, so editing it doesn't need
 //! the sidebar reopened. A file that doesn't parse leaves the last good
-//! pages up.
+//! pages up. When there's no file at all, the starter pages built into the
+//! binary are written there first, so a fresh install has something to edit.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
@@ -35,6 +36,23 @@ fn config_path() -> PathBuf {
     base.join("tmux-legion/keypad.json")
 }
 
+/// The starter pages, `keypad/keypad.json`, built in so every install has
+/// them whichever way it was built.
+const STARTER: &str = include_str!("../../keypad/keypad.json");
+
+/// Write the starter pages to `path` unless something is already there.
+/// `Ok(true)` when it wrote them.
+fn seed(path: &Path) -> Result<bool> {
+    if path.symlink_metadata().is_ok() {
+        return Ok(false);
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    }
+    std::fs::write(path, STARTER).with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(true)
+}
+
 /// One page, ready to send: its name and nine keys.
 pub type OwnPage = (String, [Key; 9]);
 
@@ -48,7 +66,16 @@ pub struct OwnPages {
 
 impl OwnPages {
     pub fn new() -> OwnPages {
-        OwnPages::at(config_path())
+        let path = config_path();
+        match seed(&path) {
+            Ok(true) => super::debug_log(&format!(
+                "keypad: wrote the starter pages to {}",
+                path.display()
+            )),
+            Ok(false) => {}
+            Err(error) => super::debug_log(&format!("keypad: {error:#}")),
+        }
+        OwnPages::at(path)
     }
 
     fn at(path: PathBuf) -> OwnPages {
@@ -158,6 +185,30 @@ mod tests {
     #[test]
     fn config_path_is_under_tmux_legion_not_mx_keypad() {
         assert!(config_path().ends_with("tmux-legion/keypad.json"));
+    }
+
+    #[test]
+    fn the_starter_pages_load() {
+        let dir = temp_dir("starter");
+        let path = dir.join("tmux-legion/keypad.json");
+        assert!(seed(&path).unwrap());
+        let mut own = OwnPages::at(path);
+        assert!(own.refresh().unwrap());
+        assert!(!own.pages().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn seeding_leaves_an_existing_file_alone() {
+        let dir = temp_dir("seeded");
+        let path = dir.join("keypad.json");
+        std::fs::write(&path, r#"{ "pages": [] }"#).unwrap();
+        assert!(!seed(&path).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{ "pages": [] }"#
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
