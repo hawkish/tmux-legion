@@ -337,8 +337,16 @@ performs every action with its own Accessibility grant, so tmux-legion never nee
 that are file paths are resolved against the file's folder, and `page` actions can only be `next`
 or `prev`.
 
-Closing the sidebar, or the Mac going to sleep, takes tmux-legion's pages away and the keypad
-goes back to your mx-keypad pages. If mx-keypad's agent isn't running, the sidebar works as usual
+The file's `dialpad` section binds an MX Dialpad's four buttons, dial and roller, in
+[mx-keypad's Dialpad format](https://github.com/hawkish/mx-keypad#add-an-mx-dialpad). The starter
+file binds Escape, Enter, and the previous and next page to the buttons, volume to the dial, and
+the Up and Down arrow keys to the roller. These bindings also go to mx-keypad's agent, and they
+replace your mx-keypad config's own `dialpad` section while the sidebar is open. They need an
+mx-keypad agent with Dialpad support, and the agent needs Input Monitoring permission to open the
+Dialpad.
+
+Closing the sidebar, or the Mac going to sleep, takes tmux-legion's pages and Dialpad bindings
+away, and the keypad goes back to your mx-keypad pages. If mx-keypad's agent isn't running, the sidebar works as usual
 without the keypad and adds its pages as soon as the agent comes back.
 
 ### Spawning agents

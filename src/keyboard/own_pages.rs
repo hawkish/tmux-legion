@@ -6,6 +6,10 @@
 //! remote pages, and the agent performs every action itself. That's what
 //! keeps keystrokes working without granting tmux-legion Accessibility.
 //!
+//! Its `dialpad` section binds the MX Dialpad the same way: sent to the
+//! agent, which performs the actions, for as long as tmux-legion is
+//! connected.
+//!
 //! The file is read again whenever it changes, so editing it doesn't need
 //! the sidebar reopened. A file that doesn't parse leaves the last good
 //! pages up. When there's no file at all, the starter pages built into the
@@ -15,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
-use mx_keypad::config::{Config, Key};
+use mx_keypad::config::{Config, DialpadConfig, Key};
 
 /// How often to look at the file's modification time.
 const CHECK_EVERY: Duration = Duration::from_secs(1);
@@ -56,12 +60,14 @@ fn seed(path: &Path) -> Result<bool> {
 /// One page, ready to send: its name and nine keys.
 pub type OwnPage = (String, [Key; 9]);
 
-/// The pages in tmux-legion's keypad config, kept in step with the file.
+/// The pages and Dialpad bindings in tmux-legion's keypad config, kept in
+/// step with the file.
 pub struct OwnPages {
     path: PathBuf,
     loaded: Option<SystemTime>,
     next_check: Instant,
     pages: Vec<OwnPage>,
+    dialpad: Option<DialpadConfig>,
 }
 
 impl OwnPages {
@@ -84,6 +90,7 @@ impl OwnPages {
             loaded: None,
             next_check: Instant::now(),
             pages: Vec::new(),
+            dialpad: None,
         }
     }
 
@@ -92,9 +99,14 @@ impl OwnPages {
         &self.pages
     }
 
+    /// The `dialpad` section as last read, if the file has one.
+    pub fn dialpad(&self) -> Option<&DialpadConfig> {
+        self.dialpad.as_ref()
+    }
+
     /// Read the file again if it changed since the last call, at most once
-    /// a second. `Ok(true)` when the pages changed; a missing file means no
-    /// pages. On an error the previous pages stay.
+    /// a second. `Ok(true)` when the pages or Dialpad bindings changed; a
+    /// missing file means neither. On an error the previous ones stay.
     pub fn refresh(&mut self) -> Result<bool> {
         if Instant::now() < self.next_check {
             return Ok(false);
@@ -107,13 +119,14 @@ impl OwnPages {
             return Ok(false);
         }
         self.loaded = modified;
-        let pages = if modified.is_some() {
+        let (pages, dialpad) = if modified.is_some() {
             load(&self.path)?
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
-        let changed = pages != self.pages;
+        let changed = pages != self.pages || dialpad != self.dialpad;
         self.pages = pages;
+        self.dialpad = dialpad;
         Ok(changed)
     }
 }
@@ -121,8 +134,9 @@ impl OwnPages {
 /// Read `path` into pages to send. The file's `defaults` are written into
 /// each key, since a remote page gets mx-keypad's built-in defaults, and
 /// relative icon paths are made absolute against the file's folder, since
-/// the agent resolves them in its own working directory.
-fn load(path: &Path) -> Result<Vec<OwnPage>> {
+/// the agent resolves them in its own working directory. The `dialpad`
+/// section comes back as written.
+fn load(path: &Path) -> Result<(Vec<OwnPage>, Option<DialpadConfig>)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let config: Config = serde_json::from_str(&text)
@@ -154,7 +168,7 @@ fn load(path: &Path) -> Result<Vec<OwnPage>> {
         }
         pages.push((page.name, keys));
     }
-    Ok(pages)
+    Ok((pages, config.dialpad))
 }
 
 /// `icon` made absolute against `base` when it's a relative file path.
@@ -248,6 +262,28 @@ mod tests {
         assert_eq!(keys[2].icon.as_deref(), Some("bell"));
         assert_eq!(keys[2].background, Some(Rgb(0xff, 0, 0)));
         assert_eq!(keys[8].background, Some(Rgb(0x11, 0x22, 0x33)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_dialpad_section_is_read_and_follows_edits() {
+        let dir = temp_dir("dialpad");
+        let path = dir.join("keypad.json");
+        std::fs::write(
+            &path,
+            r#"{ "pages": [{ "name": "a" }],
+                 "dialpad": { "buttons": { "1": { "keys": "escape" } } } }"#,
+        )
+        .unwrap();
+        let mut own = OwnPages::at(path.clone());
+        assert!(own.refresh().unwrap());
+        let dialpad = own.dialpad().unwrap();
+        assert_eq!(dialpad.buttons["1"], Action::Keys("escape".into()));
+        std::fs::write(&path, r#"{ "pages": [{ "name": "a" }] }"#).unwrap();
+        own.loaded = None;
+        own.next_check = Instant::now();
+        assert!(own.refresh().unwrap());
+        assert!(own.dialpad().is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 

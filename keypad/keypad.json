@@ -125,5 +125,15 @@
     "right": {
       "page": "next"
     }
+  },
+  "dialpad": {
+    "buttons": {
+      "1": { "keys": "escape" },
+      "2": { "keys": "return" },
+      "3": { "page": "prev" },
+      "4": { "page": "next" }
+    },
+    "dial": { "left": { "media": "volume-down" }, "right": { "media": "volume-up" }, "step": 10 },
+    "roller": { "up": { "keys": "up" }, "down": { "keys": "down" } }
   }
 }
