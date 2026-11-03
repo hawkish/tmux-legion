@@ -20,7 +20,7 @@
           "icon": "volume-x",
           "label": "Mute",
           "action": {
-            "media": "mute"
+            "keys": "cmd+shift+m"
           },
           "background": "#0000FF"
         },
