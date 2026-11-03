@@ -51,6 +51,14 @@
             "text": "å"
           }
         },
+        "7": {
+          "icon": "lock",
+          "label": "Lock",
+          "action": {
+            "system": "lock"
+          },
+          "background": "#0000FF"
+        },
         "8": {
           "icon": "chevrons-up",
           "label": "Shift",
