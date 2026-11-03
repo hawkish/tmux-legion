@@ -69,18 +69,43 @@
             "background": "#FFFF00",
             "foreground": "#000000"
           }
+        },
+        "9": {
+          "label": "Enter",
+          "action": {
+            "keys": "return"
+          },
+          "background": "#00FF00",
+          "foreground": "#000000"
         }
       }
     },
     {
       "name": "page-2",
       "keys": {
-        "1": {
+        "6": {
+          "icon": "terminal",
+          "label": "git message",
+          "action": {
+            "text": "autop git-message"
+          },
+          "background": "#0000FF" 
+        },
+        "7": {
+          "icon": "terminal",
+          "label": "nh switch",
+          "action": {
+            "text": "nh darwin switch"
+          },
+          "background": "#0000FF" 
+        },
+        "8": {
           "icon": "square-x",
           "label": "/quit",
           "action": {
             "text": "/quit"
-          }
+          },
+          "background": "#FF0000"
         },
         "9": {
           "label": "Enter",
