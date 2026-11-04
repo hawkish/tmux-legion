@@ -95,7 +95,7 @@
           "icon": "terminal",
           "label": "nh switch",
           "action": {
-            "text": "nh darwin switch"
+            "text": "nh darwin switch ."
           },
           "background": "#0000FF" 
         },
@@ -133,7 +133,7 @@
       "3": { "page": "prev" },
       "4": { "page": "next" }
     },
-    "dial": { "left": { "media": "volume-down" }, "right": { "media": "volume-up" }, "step": 10 },
+    "dial": { "left": { "media": "volume-down" }, "right": { "media": "volume-up" }, "step": 1 },
     "roller": { "up": { "keys": "up" }, "down": { "keys": "down" } }
   }
 }
