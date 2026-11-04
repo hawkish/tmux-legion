@@ -60,14 +60,15 @@ fn seed(path: &Path) -> Result<bool> {
 /// One page, ready to send: its name and nine keys.
 pub type OwnPage = (String, [Key; 9]);
 
-/// The pages and Dialpad bindings in tmux-legion's keypad config, kept in
-/// step with the file.
+/// The pages, Dialpad bindings and brightness in tmux-legion's keypad
+/// config, kept in step with the file.
 pub struct OwnPages {
     path: PathBuf,
     loaded: Option<SystemTime>,
     next_check: Instant,
     pages: Vec<OwnPage>,
     dialpad: Option<DialpadConfig>,
+    brightness: Option<u8>,
 }
 
 impl OwnPages {
@@ -91,6 +92,7 @@ impl OwnPages {
             next_check: Instant::now(),
             pages: Vec::new(),
             dialpad: None,
+            brightness: None,
         }
     }
 
@@ -104,9 +106,14 @@ impl OwnPages {
         self.dialpad.as_ref()
     }
 
+    /// The panel brightness as last read, if the file sets one.
+    pub fn brightness(&self) -> Option<u8> {
+        self.brightness
+    }
+
     /// Read the file again if it changed since the last call, at most once
-    /// a second. `Ok(true)` when the pages or Dialpad bindings changed; a
-    /// missing file means neither. On an error the previous ones stay.
+    /// a second. `Ok(true)` when the pages, Dialpad bindings or brightness
+    /// changed; a missing file means none of them. On an error the previous ones stay.
     pub fn refresh(&mut self) -> Result<bool> {
         if Instant::now() < self.next_check {
             return Ok(false);
@@ -119,14 +126,16 @@ impl OwnPages {
             return Ok(false);
         }
         self.loaded = modified;
-        let (pages, dialpad) = if modified.is_some() {
+        let (pages, dialpad, brightness) = if modified.is_some() {
             load(&self.path)?
         } else {
-            (Vec::new(), None)
+            (Vec::new(), None, None)
         };
-        let changed = pages != self.pages || dialpad != self.dialpad;
+        let changed =
+            pages != self.pages || dialpad != self.dialpad || brightness != self.brightness;
         self.pages = pages;
         self.dialpad = dialpad;
+        self.brightness = brightness;
         Ok(changed)
     }
 }
@@ -135,8 +144,8 @@ impl OwnPages {
 /// each key, since a remote page gets mx-keypad's built-in defaults, and
 /// relative icon paths are made absolute against the file's folder, since
 /// the agent resolves them in its own working directory. The `dialpad`
-/// section comes back as written.
-fn load(path: &Path) -> Result<(Vec<OwnPage>, Option<DialpadConfig>)> {
+/// section and `brightness` come back as written.
+fn load(path: &Path) -> Result<(Vec<OwnPage>, Option<DialpadConfig>, Option<u8>)> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("cannot read {}", path.display()))?;
     let config: Config = serde_json::from_str(&text)
@@ -168,7 +177,7 @@ fn load(path: &Path) -> Result<(Vec<OwnPage>, Option<DialpadConfig>)> {
         }
         pages.push((page.name, keys));
     }
-    Ok((pages, config.dialpad))
+    Ok((pages, config.dialpad, config.brightness))
 }
 
 /// `icon` made absolute against `base` when it's a relative file path.
@@ -284,6 +293,22 @@ mod tests {
         own.next_check = Instant::now();
         assert!(own.refresh().unwrap());
         assert!(own.dialpad().is_none());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_brightness_is_read_and_follows_edits() {
+        let dir = temp_dir("brightness");
+        let path = dir.join("keypad.json");
+        std::fs::write(&path, r#"{ "brightness": 70, "pages": [{ "name": "a" }] }"#).unwrap();
+        let mut own = OwnPages::at(path.clone());
+        assert!(own.refresh().unwrap());
+        assert_eq!(own.brightness(), Some(70));
+        std::fs::write(&path, r#"{ "pages": [{ "name": "a" }] }"#).unwrap();
+        own.loaded = None;
+        own.next_check = Instant::now();
+        assert!(own.refresh().unwrap());
+        assert_eq!(own.brightness(), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 

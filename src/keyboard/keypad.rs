@@ -183,9 +183,11 @@ impl KeypadPainter {
 
     /// Send the own pages, before the agents page the first time so they
     /// come first, and take away any the file no longer has. The Dialpad
-    /// bindings go along; the client sends them only when they change.
+    /// bindings and brightness go along; the client sends them only when
+    /// they change.
     fn send_own(&mut self) {
         self.client.set_dialpad(self.own.dialpad().cloned());
+        self.client.set_brightness(self.own.brightness());
         let names: Vec<String> = self.own.pages().iter().map(|(n, _)| n.clone()).collect();
         for gone in self.sent_own.iter().filter(|n| !names.contains(n)) {
             self.client.remove(gone);
@@ -214,11 +216,13 @@ impl KeypadPainter {
         presses
     }
 
-    /// Take the pages off the keypad and let go of the Dialpad, for a sleep
-    /// or a quit. The agent turns back to the user's mx-keypad pages.
+    /// Take the pages off the keypad and let go of the Dialpad and the
+    /// brightness, for a sleep or a quit. The agent turns back to the user's
+    /// mx-keypad pages.
     pub fn blank(&mut self) {
         self.asleep = true;
         self.client.set_dialpad(None);
+        self.client.set_brightness(None);
         for name in std::mem::take(&mut self.sent_own) {
             self.client.remove(&name);
         }

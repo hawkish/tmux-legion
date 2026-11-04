@@ -1,4 +1,5 @@
 {
+  "brightness": 70,
   "defaults": {
     "background": "#000000",
     "foreground": "#ffffff",

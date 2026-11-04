@@ -345,6 +345,11 @@ replace your mx-keypad config's own `dialpad` section while the sidebar is open.
 mx-keypad agent with Dialpad support, and the agent needs Input Monitoring permission to open the
 Dialpad.
 
+The file's `brightness`, from 1 to 100, sets the keypad's panel brightness while the sidebar is
+open, in place of your mx-keypad config's own `brightness`. The starter file sets 70. When the
+sidebar closes, your mx-keypad config's brightness applies again if it sets one; otherwise the
+panel stays as it was. It needs mx-keypad v0.10.0 or later.
+
 Closing the sidebar, or the Mac going to sleep, takes tmux-legion's pages and Dialpad bindings
 away, and the keypad goes back to your mx-keypad pages. If mx-keypad's agent isn't running, the sidebar works as usual
 without the keypad and adds its pages as soon as the agent comes back.
