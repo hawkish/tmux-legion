@@ -90,7 +90,7 @@ sidebar redraws on a SIGUSR1 poke.
 
 ```nix
 # Pin to a release tag (recommended); drop the ref to track the default branch.
-inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.10.0";
+inputs.tmux-legion.url = "github:hawkish/tmux-legion/v0.10.1";
 ```
 
 The flake exposes `packages.<system>.default` (the CLI), `packages.<system>.tmuxPlugin`
@@ -346,7 +346,7 @@ mx-keypad agent with Dialpad support, and the agent needs Input Monitoring permi
 Dialpad.
 
 The file's `brightness`, from 1 to 100, sets the keypad's panel brightness while the sidebar is
-open, in place of your mx-keypad config's own `brightness`. The starter file sets 70. When the
+open, in place of your mx-keypad config's own `brightness`. The starter file sets 50. When the
 sidebar closes, your mx-keypad config's brightness applies again if it sets one; otherwise the
 panel stays as it was. It needs mx-keypad v0.10.0 or later.
 
