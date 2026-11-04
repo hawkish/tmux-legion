@@ -33,7 +33,7 @@
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
-          cargoLock.outputHashes."mx-keypad-0.10.0" = "sha256-taTyKVp0/o3uzGpqSu4/Xct6Vn+sBwdrtPbA/+PTV2g=";
+          cargoLock.outputHashes."mx-keypad-0.10.1" = "sha256-rxSYXXTTdkC6dSXAeA4UjdOWvGj2j1H9K68YG4cqQlQ=";
           # Integration tests need a live tmux server
           doCheck = false;
           # The full repo, for consumers of non-Rust assets (SKILL.md,
