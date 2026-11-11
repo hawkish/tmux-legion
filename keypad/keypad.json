@@ -101,7 +101,7 @@
           "background": "#0000FF" 
         },
         "6": {
-          "icon": "cpu",
+          "icon": "gauge",
           "label": "/model",
           "action": {
             "text": "/model"
