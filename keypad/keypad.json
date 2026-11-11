@@ -84,7 +84,7 @@
     {
       "name": "page-2",
       "keys": {
-        "5": {
+        "4": {
           "icon": "terminal",
           "label": "git message",
           "action": {
@@ -92,13 +92,21 @@
           },
           "background": "#0000FF" 
         },
-        "6": {
+        "5": {
           "icon": "terminal",
           "label": "nh switch",
           "action": {
             "text": "nh darwin switch ."
           },
           "background": "#0000FF" 
+        },
+        "6": {
+          "icon": "cpu",
+          "label": "/model",
+          "action": {
+            "text": "/model"
+          },
+          "background": "#FF0000"
         },
         "7": {
           "icon": "list-checks",
